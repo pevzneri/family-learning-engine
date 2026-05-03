@@ -47,7 +47,10 @@ function speak(text: string, voiceIdx?: number) {
 }
 
 function calcPoints(lv: number, st: number, ok: boolean): number { return ok ? 10+(lv*5)+(Math.min(st,5)*3) : 0; }
-function PointsBurst({ pts }: { pts: number }) { return pts>0?<div className="animate-fade-up text-center mb-2"><span className="inline-block px-4 py-1.5 rounded-full bg-amber-100 border border-amber-300 text-amber-700 font-bold font-body text-sm">+{pts} points!</span></div>:null; }
+function notesAutoBoost(notes: string): number { if(!notes)return 0; const n=notes.toLowerCase(); let b=0; if(/\brsm\b|russian school/i.test(n))b+=2; if(/\b2e\b|twice.?exceptional|gifted/i.test(n))b+=1; if(/\badvanced\b|above.?grade/i.test(n))b+=1; return Math.min(b,3); }
+function scrambleWord(w: string): string { const a=w.split(""); for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} const s=a.join(""); return s===w?scrambleWord(w):s; }
+const EMMA_WORDS: Record<string,string[]> = {math:["addition","multiply","fraction","decimal","geometry","algebra"],reading:["sentence","paragraph","synonym","metaphor","fiction","summary"],science:["energy","gravity","habitat","molecule","weather","circuit"],geography:["mountain","compass","continent","island","climate","resource"],history:["freedom","ancient","explore","invention","colony","liberty"],bible:["kindness","courage","wisdom","forgive","charity","faithful"]};
+function PointsBurst({ pts }: { pts: number }) { return pts>0?<div className="animate-fade-up text-center mb-2"><span className="inline-block px-4 py-1.5 rounded-full bg-amber-100 border border-amber-300 text-amber-700 font-bold font-body text-sm">+{pts} Bab$ Bux!</span></div>:null; }
 
 /* ─── ICONS ─── */
 const Lock=()=>(<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>);
@@ -105,7 +108,14 @@ export default function LearningEngine() {
   const [testMode,setTestMode]=useState(false);const [testQ,setTestQ]=useState(0);const [testC,setTestC]=useState(0);
   const [testDone,setTestDone]=useState(false);const [testPass,setTestPass]=useState(false);
   const [voiceIdx,setVoiceIdx]=useState(0);const [parentPinMode,setParentPinMode]=useState(false);const [parentPinInput,setParentPinInput]=useState("");const [parentPinError,setParentPinError]=useState("");const [parentPinTarget,setParentPinTarget]=useState<View>("parentDash");const [parentPinSetup,setParentPinSetup]=useState(false);const [auditLogs,setAuditLogs]=useState<any[]>([]);const [voices,setVoices]=useState<string[]>([]);
-  const [diffBoost,setDiffBoost]=useState<Record<string,number>>({});
+  const [diffBoost,setDiffBoost]=useState<Record<string,Record<string,number>>>({});
+  const [showBabsWelcome,setShowBabsWelcome]=useState(false);
+  const [showSurrenderPopup,setShowSurrenderPopup]=useState(false);
+  const [emmaChallenge,setEmmaChallenge]=useState<{word:string;scrambled:string;topic:string}|null>(null);
+  const [emmaInput,setEmmaInput]=useState("");
+  const [emmaResult,setEmmaResult]=useState<"pending"|"correct"|"wrong">("pending");
+  const [hiddenSubjects,setHiddenSubjects]=useState<Record<string,string[]>>({});
+  const [customFocus,setCustomFocus]=useState<Record<string,string>>({});
   /* All children progress for parent dash */
   const [allChildProgress,setAllChildProgress]=useState<Record<string,Record<string,Record<string,ProgressRow>>>>({});
   const msgIdx=useRef(0);const loadMsgs=["Thinking up a good one...","Picking the right challenge...","Making this just right...","Almost ready..."];
@@ -113,14 +123,26 @@ export default function LearningEngine() {
   const [fS,sfS]=useState("visual");const [fA,sfA]=useState("\u{1F98A}");const [fNt,sfNt]=useState("");const [fI,sfI]=useState("");const [eId,sEId]=useState<string|null>(null);
 
   useEffect(()=>{if(typeof window!=="undefined"){const loadV=()=>{const v=window.speechSynthesis.getVoices().filter(v=>v.lang.startsWith("en"));setVoices(v.map(v=>v.name));};loadV();window.speechSynthesis.onvoiceschanged=loadV;}},[]);
-  useEffect(()=>{fetch("/api/children").then(async r=>{if(r.ok){const d=await r.json();setChildren(d.children||[]);setParent({id:"s",name:"",email:""});setView("profiles");}}).catch(()=>{});},[]);
+  useEffect(()=>{try{const s=localStorage.getItem("kk_diffBoost");if(s)setDiffBoost(JSON.parse(s));}catch{}},[]);
+  useEffect(()=>{try{localStorage.setItem("kk_diffBoost",JSON.stringify(diffBoost));}catch{}},[diffBoost]);
+  useEffect(()=>{try{const s=localStorage.getItem("kk_hiddenSubjects");if(s)setHiddenSubjects(JSON.parse(s));}catch{}},[]);
+  useEffect(()=>{try{localStorage.setItem("kk_hiddenSubjects",JSON.stringify(hiddenSubjects));}catch{}},[hiddenSubjects]);
+  useEffect(()=>{try{const s=localStorage.getItem("kk_customFocus");if(s)setCustomFocus(JSON.parse(s));}catch{}},[]);
+  useEffect(()=>{try{localStorage.setItem("kk_customFocus",JSON.stringify(customFocus));}catch{}},[customFocus]);
+  const getChildHidden=(childId:string):string[]=>hiddenSubjects[childId]||[];
+  const toggleChildSubject=(childId:string,subj:string)=>{setHiddenSubjects(p=>{const cur=p[childId]||[];return{...p,[childId]:cur.includes(subj)?cur.filter(s=>s!==subj):[...cur,subj]};});};
+  const getChildBoost=(childId:string,subj:string)=>(diffBoost[childId]?.[subj]||0);
+  const setChildBoost=(childId:string,subj:string,val:number)=>{setDiffBoost(p=>({...p,[childId]:{...(p[childId]||{}),[subj]:val}}));};
+  useEffect(()=>{fetch("/api/children").then(async r=>{if(r.ok){const d=await r.json();const kids=d.children||[];setChildren(kids);setParent({id:"s",name:"",email:""});
+    try{const savedId=localStorage.getItem("kk_activeChild");if(savedId){const saved=kids.find((c:Child)=>c.id===savedId);if(saved){setActiveChild(saved);loadProg(saved.id);setView("dashboard");return;}}}catch{}
+    setView("profiles");}}).catch(()=>{});},[]);
 
   const handleAuth=async(e:React.FormEvent)=>{e.preventDefault();setAuthLoading(true);setAuthError("");
     const ep=authMode==="signup"?"/api/auth/signup":"/api/auth/login";
     const b=authMode==="signup"?{email:authEmail,password:authPassword,name:authName}:{email:authEmail,password:authPassword};
-    try{const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});const d=await r.json();if(!r.ok)throw new Error(d.error);setParent(d.parent);logAudit("parent_login",d.parent.email);const cr=await fetch("/api/children");const cd=await cr.json();setChildren(cd.children||[]);setView("profiles");}catch(e:any){setAuthError(e.message);}setAuthLoading(false);};
-  const handleLogout=()=>{document.cookie="fle_session=; max-age=0; path=/";setParent(null);setActiveChild(null);setView("login");setChildren([]);setProgress({});setAllChildProgress({});};
-  const handlePin=(child:Child,val?:string)=>{if((val||pinInput)===child.pin){setActiveChild(child);setPinInput("");setPinError("");loadProg(child.id);logAudit("child_login",child.name,child.id);setView("dashboard");}else{setPinError("Wrong PIN");setPinInput("");}};
+    try{const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});const d=await r.json();if(!r.ok)throw new Error(d.error);setParent(d.parent);logAudit("parent_login",d.parent.email);const cr=await fetch("/api/children");const cd=await cr.json();setChildren(cd.children||[]);if(authMode==="signup"){setShowBabsWelcome(true);}else{setView("profiles");}}catch(e:any){setAuthError(e.message);}setAuthLoading(false);};
+  const handleLogout=()=>{document.cookie="fle_session=; max-age=0; path=/";try{localStorage.removeItem("kk_activeChild");}catch{}setParent(null);setActiveChild(null);setView("login");setChildren([]);setProgress({});setAllChildProgress({});};
+  const handlePin=(child:Child,val?:string)=>{if((val||pinInput)===child.pin){setActiveChild(child);setPinInput("");setPinError("");loadProg(child.id);logAudit("child_login",child.name,child.id);try{localStorage.setItem("kk_activeChild",child.id);}catch{}setView("dashboard");}else{setPinError("Wrong PIN");setPinInput("");}};
   const loadProg=async(id:string)=>{const r=await fetch(`/api/progress?child_id=${id}`);const d=await r.json();const bs:Record<string,Record<string,ProgressRow>>={};(d.progress||[]).forEach((p:ProgressRow)=>{if(!bs[p.subject])bs[p.subject]={};bs[p.subject][p.topic_id]=p;});setProgress(bs);};
   const loadAllProgress=async()=>{const all:Record<string,Record<string,Record<string,ProgressRow>>>={};for(const c of children){const r=await fetch(`/api/progress?child_id=${c.id}`);const d=await r.json();const bs:Record<string,Record<string,ProgressRow>>={};(d.progress||[]).forEach((p:ProgressRow)=>{if(!bs[p.subject])bs[p.subject]={};bs[p.subject][p.topic_id]=p;});all[c.id]=bs;}setAllChildProgress(all);};
   const logAudit=async(action:string,detail?:string,childId?:string)=>{try{await fetch("/api/audit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,detail:detail||"",child_id:childId||null})});}catch{}};
@@ -140,7 +162,7 @@ export default function LearningEngine() {
     const topics=getTopics(subj,activeChild.grade_band as GradeBand);const topic=topics.find(t=>t.id===tid);const tp=progress[subj]?.[tid];
     if(!topic||!tp){clearInterval(iv);setLoading(false);return;}
     try{const r=await fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:diffBoost[subj]||0})});
+      body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:getChildBoost(activeChild.id,subj),customFocus:customFocus[activeChild.id]||""})});
     if(!r.ok)throw new Error(`Server ${r.status}`);const d=await r.json();if(d.error)throw new Error(d.error);
     setQuestion(d);setRecentQs(p=>[...p.slice(-9),d.question]);}catch(e:any){setError(e.message);}finally{clearInterval(iv);setLoading(false);}
   },[activeChild,progress,recentQs,diffBoost]);
@@ -151,7 +173,7 @@ export default function LearningEngine() {
     const tp=progress[activeSubject]?.[activeTopic];if(!tp)return;
     const pts=calcPoints(tp.level,Math.max(0,tp.streak)+(ok?1:0),ok);setLastPoints(pts);
     if(ok&&celEnabled){setCelType(t=>t+1);setShowCel(true);}
-    if(testMode){const nt=testQ+1;const nc=testC+(ok?1:0);setTestQ(nt);setTestC(nc);if(nt>=10){setTestDone(true);setTestPass(nc>=8);}}
+    if(testMode){const nt=testQ+1;const nc=testC+(ok?1:0);setTestQ(nt);setTestC(nc);if(nt>=10){setTestDone(true);setTestPass(nc>=8);if(nc>=9&&activeSubject){const words=EMMA_WORDS[activeSubject]||EMMA_WORDS.math;const w=words[Math.floor(Math.random()*words.length)];setEmmaChallenge({word:w,scrambled:scrambleWord(w.toUpperCase()),topic:activeTopic});setEmmaInput("");setEmmaResult("pending");}}}
     const n={...tp};n.total+=1;
     if(ok){n.correct+=1;n.streak=Math.max(0,n.streak)+1;n.best_streak=Math.max(n.best_streak,n.streak);}else{n.streak=Math.min(0,n.streak)-1;}
     if(n.streak>=MASTERY.advance){n.level=Math.min(8,n.level+1);n.streak=0;}else if(n.streak<=-MASTERY.struggle){n.level=Math.max(1,n.level-1);n.streak=0;}
@@ -170,7 +192,8 @@ export default function LearningEngine() {
   const goLesson=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(false);setTestDone(false);setView("lesson");genQ(activeSubject,t);};
   const goTest=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(true);setTestQ(0);setTestC(0);setTestDone(false);setTestPass(false);setView("lesson");genQ(activeSubject,t,true);};
   const goBack=()=>{window.speechSynthesis?.cancel();if(view==="lesson"){setView("subject");setQuestion(null);setTestMode(false);setTestDone(false);}else if(view==="subject"||view==="parent")setView("dashboard");else if(view==="editChild"||view==="createChild"){setView("profiles");resetForm();}else if(view==="childPin"){setView("profiles");setPinInput("");setPinError("");}else if(view==="parentDash"||view==="achievements"||view==="settings")setView("dashboard");};
-  const goProfiles=()=>{setView("profiles");setActiveChild(null);setActiveSubject(null);};
+  const tryLeaveLesson=()=>{if(view==="lesson"&&sessionStats.total>0&&!testDone){setShowSurrenderPopup(true);}else{goBack();}};
+  const goProfiles=()=>{try{localStorage.removeItem("kk_activeChild");}catch{}setView("profiles");setActiveChild(null);setActiveSubject(null);};
   const getStats=(s:string,prog?:Record<string,Record<string,ProgressRow>>)=>{const p=prog||progress;if(!activeChild&&!prog)return{pct:0,done:0,total:0};const gb=activeChild?.grade_band||"2-3";const t=getTopics(s,gb as GradeBand);const d=t.filter(x=>p[s]?.[x.id]?.mastered).length;return{pct:t.length>0?Math.round((d/t.length)*100):0,done:d,total:t.length};};
   const getTotalPts=(prog?:Record<string,Record<string,ProgressRow>>)=>{const p=prog||progress;let t=0;for(const s of Object.values(p))for(const tp of Object.values(s))t+=(tp.correct||0)*15;return t;};
 
@@ -196,7 +219,7 @@ export default function LearningEngine() {
 
       {/* TOP BAR */}
       <div className="flex justify-between items-center mb-4">
-        <div>{!["login","profiles"].includes(view)&&(<button onClick={view==="dashboard"?goProfiles:goBack} className="text-sm font-semibold font-body text-gray-400 hover:text-gray-600">&larr; {view==="dashboard"?"Profiles":"Back"}</button>)}</div>
+        <div>{!["login","profiles"].includes(view)&&(<button onClick={view==="dashboard"?goProfiles:view==="lesson"?tryLeaveLesson:goBack} className="text-sm font-semibold font-body text-gray-400 hover:text-gray-600">&larr; {view==="dashboard"?"Profiles":"Back"}</button>)}</div>
         <div className="flex gap-2 items-center">
           {parent&&view!=="login"&&(<button onClick={handleLogout} className="px-2 py-1 rounded-lg text-[10px] font-bold font-body uppercase bg-gray-100 text-gray-400 hover:bg-gray-200">Logout</button>)}
           {activeChild&&!["login","profiles","childPin","createChild","editChild"].includes(view)&&(<>
@@ -209,7 +232,7 @@ export default function LearningEngine() {
 
       {/* LOGIN */}
       {view==="login"&&(<div className="animate-fade-up max-w-sm mx-auto mt-12">
-        <div className="text-center mb-6"><div className="text-4xl mb-2">{"\u{1F393}"}</div><h1 className="text-2xl font-bold">Welcome</h1><p className="text-xs font-body text-gray-400 mt-1">{authMode==="login"?"Sign in":"Create an account"}</p></div>
+        <div className="text-center mb-6"><img src="/babs-logo.jpeg" alt="Babs" className="w-20 h-20 rounded-full object-cover mx-auto mb-2 border-4 border-pink-200 shadow-lg" /><h1 className="text-2xl font-bold">Katz Kourse</h1><p className="text-xs font-body text-gray-400 mt-1">{authMode==="login"?"Sign in":"Create an account"}</p></div>
         <form onSubmit={handleAuth}>
           {authMode==="signup"&&<input value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="Your name" className="w-full px-3.5 py-2.5 rounded-xl border-2 border-gray-200 text-base font-body focus:border-amber-400 focus:outline-none mb-3"/>}
           <input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="Email" className="w-full px-3.5 py-2.5 rounded-xl border-2 border-gray-200 text-base font-body focus:border-amber-400 focus:outline-none mb-3"/>
@@ -222,7 +245,7 @@ export default function LearningEngine() {
 
       {/* PROFILES */}
       {view==="profiles"&&(<div className="animate-fade-up">
-        <div className="text-center mb-6"><p className="text-xs font-body tracking-[0.2em] uppercase text-gray-400 mb-1">Family Learning Engine</p><h1 className="text-2xl font-bold">Who&apos;s learning today?</h1></div>
+        <div className="text-center mb-6"><p className="text-xs font-body tracking-[0.2em] uppercase text-gray-400 mb-1">Katz Kourse</p><h1 className="text-2xl font-bold">Who&apos;s learning today?</h1></div>
         {/* Parent Dashboard Button */}
         {children.length>0&&(<button onClick={()=>checkParentPin("parentDash")} className="w-full mb-4 py-3 rounded-xl border-2 border-gray-200 bg-white text-sm font-semibold font-body text-gray-600 hover:border-amber-300 hover:bg-amber-50 flex items-center justify-center gap-2">{"\u{1F4CA}"} Parent Dashboard — All Children</button>)}
         <div className={`grid gap-3 ${children.length>0?"grid-cols-2":"grid-cols-1"}`}>
@@ -236,11 +259,11 @@ export default function LearningEngine() {
 
       {/* PARENT DASHBOARD — ALL CHILDREN */}
       {view==="parentDash"&&(<div className="animate-fade-up">
-        <h2 className="text-xl font-bold text-center mb-5">{"\u{1F4CA}"} Family Progress</h2>
+        <h2 className="text-xl font-bold text-center mb-5">{"\u{1F4CA}"} Katz Kourse — Family Progress</h2>
         {children.map(child=>{const cp=allChildProgress[child.id]||{};const assess=assessGradeLevel(cp,child.grade_band);
           return(<div key={child.id} className="mb-6 p-4 rounded-2xl border-2 border-gray-200 bg-white">
             <div className="flex items-center gap-3 mb-3"><span className="text-3xl">{child.avatar}</span><div><div className="font-bold text-lg">{child.name}</div><div className="text-xs font-body text-gray-400">{GRADE_BANDS.find(g=>g.id===child.grade_band)?.label}</div></div>
-              <div className="ml-auto text-right"><div className="text-xs font-bold font-body px-2 py-1 rounded-full" style={{background:assess.color+"20",color:assess.color}}>{assess.label}</div><div className="text-xs font-body text-gray-400 mt-0.5"><StarIcon/> {getTotalPts(cp).toLocaleString()} pts</div></div>
+              <div className="ml-auto text-right"><div className="text-xs font-bold font-body px-2 py-1 rounded-full" style={{background:assess.color+"20",color:assess.color}}>{assess.label}</div><div className="text-xs font-body text-gray-400 mt-0.5"><StarIcon/> {getTotalPts(cp).toLocaleString()} Bab$</div></div>
             </div>
             <p className="text-xs font-body text-gray-500 mb-3">{assess.detail}</p>
             {/* Subject bars */}
@@ -255,8 +278,17 @@ export default function LearningEngine() {
             <div className="mt-3 pt-3 border-t border-gray-100"><div className="text-xs font-bold font-body text-gray-500 mb-2">Difficulty Boost</div>
               <div className="flex flex-wrap gap-2">{Object.entries(CURRICULUM).map(([k,s])=>(<div key={k} className="flex items-center gap-1">
                 <span className="text-xs font-body" style={{color:s.color}}>{s.icon}</span>
-                {[0,1,2,3].map(n=>(<button key={n} onClick={()=>setDiffBoost(p=>({...p,[k]:n}))} className={`w-5 h-5 rounded-full text-[9px] font-bold font-body ${(diffBoost[k]||0)===n?"bg-gray-900 text-white":"bg-gray-100 text-gray-400"}`}>{n}</button>))}
+                {[0,1,2,3].map(n=>(<button key={n} onClick={()=>setChildBoost(child.id,k,n)} className={`w-5 h-5 rounded-full text-[9px] font-bold font-body ${getChildBoost(child.id,k)===n?"bg-gray-900 text-white":"bg-gray-100 text-gray-400"}`}>{n}</button>))}
               </div>))}</div>
+            </div>
+            {/* Subject visibility */}
+            <div className="mt-3 pt-3 border-t border-gray-100"><div className="text-xs font-bold font-body text-gray-500 mb-2">Visible Subjects</div>
+              <div className="flex flex-wrap gap-2">{Object.entries(CURRICULUM).map(([k,s])=>{const hidden=getChildHidden(child.id).includes(k);return(<button key={k} onClick={()=>toggleChildSubject(child.id,k)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-body font-semibold border ${hidden?"border-gray-200 bg-gray-50 text-gray-300 line-through":"border-green-200 bg-green-50 text-green-700"}`}><span>{s.icon}</span>{s.label}</button>);})}</div>
+            </div>
+            {/* Custom focus */}
+            <div className="mt-3 pt-3 border-t border-gray-100"><div className="text-xs font-bold font-body text-gray-500 mb-1">Custom Focus</div>
+              <p className="text-[10px] font-body text-gray-300 mb-1.5">Add topics or instructions for Claude (e.g. &ldquo;Focus on RSM-level multiplication&rdquo;)</p>
+              <textarea value={customFocus[child.id]||""} onChange={e=>setCustomFocus(p=>({...p,[child.id]:e.target.value}))} rows={2} placeholder="e.g. Practice 3-digit addition with regrouping, focus on word problems with money..." className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-body resize-y focus:border-amber-400 focus:outline-none"/>
             </div>
           </div>);})}
         {/* Audit Log */}
@@ -305,11 +337,11 @@ export default function LearningEngine() {
       {view==="dashboard"&&activeChild&&(<div className="animate-fade-up">
         <div className="text-center mb-4"><div className="text-5xl mb-1">{activeChild.avatar}</div><h1 className="text-2xl font-bold">Hi {activeChild.name}!</h1></div>
         <div className="flex justify-center gap-2 mb-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-full"><StarIcon/><span className="text-sm font-bold font-body text-amber-700">{getTotalPts().toLocaleString()} pts</span></div>
+          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-full"><StarIcon/><span className="text-sm font-bold font-body text-amber-700">{getTotalPts().toLocaleString()} Bab$</span></div>
           <button onClick={()=>setView("achievements")} className="flex items-center gap-2 px-4 py-2 bg-violet-50 border border-violet-200 rounded-full hover:bg-violet-100"><span className="text-sm">{"\u{1F3C6}"}</span><span className="text-sm font-bold font-body text-violet-700">Badges</span></button>
           <button onClick={()=>setView("settings")} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-full hover:bg-gray-100"><span className="text-sm">{"\u{2699}\u{FE0F}"}</span></button>
         </div>
-        {Object.entries(CURRICULUM).map(([k,s])=>{const st=getStats(k);return(
+        {Object.entries(CURRICULUM).filter(([k])=>!activeChild||!getChildHidden(activeChild.id).includes(k)).map(([k,s])=>{const st=getStats(k);return(
           <button key={k} onClick={()=>goSubj(k)} className="block w-full text-left p-5 mb-3 rounded-2xl border-2 hover:shadow-md active:scale-[0.99]" style={{borderColor:s.colorMid,background:s.colorLight}}>
             <div className="flex justify-between items-center"><div><span className="text-xl mr-2">{s.icon}</span><span className="text-lg font-bold" style={{color:s.color}}>{s.label}</span><div className="text-xs font-body text-gray-400 mt-0.5 ml-8">{st.done}/{st.total} mastered</div></div><div className="text-2xl font-bold" style={{color:s.color}}>{st.pct}%</div></div>
             <div className="mt-3 h-1.5 rounded-full" style={{background:s.colorMid}}><div className="h-full rounded-full transition-all duration-500" style={{background:s.color,width:`${st.pct}%`}}/></div>
@@ -373,7 +405,7 @@ export default function LearningEngine() {
         return(<div className="animate-fade-up">
           <div className="flex justify-between items-center mb-3 px-3.5 py-2.5 rounded-xl" style={{background:subj.colorLight}}>
             <div><div className="text-sm font-bold font-body flex items-center gap-2" style={{color:subj.color}}>{topic.name}{testMode&&<span className="text-[10px] px-2 py-0.5 bg-amber-200 text-amber-800 rounded-full font-bold">TEST</span>}</div>
-              <div className="text-[10px] text-gray-400 font-body">Lv{tp.level}{diffBoost[activeSubject]?"+"+diffBoost[activeSubject]:""} &middot; {sessionStats.correct}/{sessionStats.total}{testMode&&` \u00b7 ${testQ}/10`}</div></div>
+              <div className="text-[10px] text-gray-400 font-body">Lv{tp.level}{activeChild&&getChildBoost(activeChild.id,activeSubject)?"+"+getChildBoost(activeChild.id,activeSubject):""} &middot; {sessionStats.correct}/{sessionStats.total}{testMode&&` \u00b7 ${testQ}/10`}</div></div>
             <div className="flex items-center gap-2">{sessionStats.points>0&&<div className="flex items-center gap-1 px-2 py-1 bg-amber-50 border border-amber-200 rounded-full"><StarIcon/><span className="text-xs font-bold font-body text-amber-600">{sessionStats.points}</span></div>}{tp.streak>0&&<div className="flex items-center gap-1 px-2 py-1 bg-orange-50 border border-orange-200 rounded-full"><FlameIcon/><span className="text-xs font-bold font-body text-orange-600">{tp.streak}</span></div>}</div>
           </div>
           {testMode&&<div className="mb-3 px-1"><div className="flex gap-1">{Array.from({length:10},(_,i)=>(<div key={i} className="flex-1 h-2 rounded-full" style={{background:i<testQ?(i<testC?"#10b981":"#f87171"):"#e5e7eb"}}/>))}</div></div>}
@@ -396,7 +428,7 @@ export default function LearningEngine() {
               <div className="px-4 py-3.5 rounded-2xl mb-3 border" style={{background:selectedAnswer===question.correct?"#ecfdf5":"#fffbeb",borderColor:selectedAnswer===question.correct?"#a7f3d0":"#fde68a"}}>
                 <p className="text-sm font-body text-gray-700 mb-1.5">{question.explanation}</p><p className="text-xs font-body font-semibold italic" style={{color:subj.color}}>{question.encouragement}</p></div>
               <div className="flex gap-2.5">{(!testMode||testQ<10)&&<button onClick={()=>genQ(activeSubject,activeTopic,testMode)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold font-body text-white hover:opacity-90 active:scale-[0.98]" style={{background:subj.color}}>{testMode?`Next (${testQ}/10)`:"Next"} &rarr;</button>}
-                <button onClick={goBack} className="px-4 py-2.5 rounded-xl border-2 text-sm font-semibold font-body hover:bg-gray-50" style={{borderColor:subj.colorMid,color:subj.color}}>Done</button></div>
+                <button onClick={tryLeaveLesson} className="px-4 py-2.5 rounded-xl border-2 text-sm font-semibold font-body hover:bg-gray-50" style={{borderColor:subj.colorMid,color:subj.color}}>Done</button></div>
             </div>}
           </>)}
         </div>);
@@ -406,7 +438,7 @@ export default function LearningEngine() {
       {view==="parent"&&activeChild&&(<div className="animate-fade-up">
         <div className="text-center mb-5"><h2 className="text-xl font-bold">{activeChild.avatar} {activeChild.name}&apos;s Progress</h2>
           <div className="text-xs font-body text-gray-400 mt-1">{(() => { const a = assessGradeLevel(progress, activeChild.grade_band); return <span style={{color:a.color}} className="font-bold">{a.label}</span>; })()}</div>
-          <div className="flex justify-center gap-3 mt-2"><div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full"><StarIcon/><span className="text-xs font-bold font-body text-amber-700">{getTotalPts().toLocaleString()} pts</span></div></div>
+          <div className="flex justify-center gap-3 mt-2"><div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full"><StarIcon/><span className="text-xs font-bold font-body text-amber-700">{getTotalPts().toLocaleString()} Bab$</span></div></div>
         </div>
         {Object.entries(CURRICULUM).map(([k,s])=>{const topics=getTopics(k,activeChild.grade_band as GradeBand);const act=topics.filter(t=>progress[k]?.[t.id]?.unlocked||(progress[k]?.[t.id]?.total||0)>0);
           return(<div key={k} className="mb-5"><div className="text-sm font-bold font-body mb-2" style={{color:s.color}}>{s.icon} {s.label}</div>
@@ -442,7 +474,53 @@ export default function LearningEngine() {
         </div>
       </div>)}
 
-      <p className="mt-8 text-center text-[10px] text-gray-200 font-body">Powered by Claude &middot; Family Learning Engine</p>
+      {/* EMMA CHALLENGE */}
+      {emmaChallenge&&(<div style={{position:"fixed",top:0,left:0,width:"100%",height:"100%",background:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center animate-fade-up">
+          <div className="text-4xl mb-2">{"\u{1F9E9}"}</div>
+          <h3 className="text-lg font-bold mb-1">Emma Challenge!</h3>
+          <p className="text-xs font-body text-gray-500 mb-3">Unscramble the word for <span className="font-bold text-amber-600">+50 bonus Bab$ Bux!</span></p>
+          <div className="flex justify-center gap-1.5 mb-4">{emmaChallenge.scrambled.split("").map((c,i)=>(<div key={i} className="w-8 h-10 rounded-lg bg-violet-100 border-2 border-violet-300 flex items-center justify-center text-lg font-bold text-violet-700">{c}</div>))}</div>
+          {emmaResult==="correct"?(<div className="animate-fade-up"><div className="text-3xl mb-2">{"\u{1F389}"}</div><p className="text-sm font-bold text-green-600 mb-3">You got it! +50 Bab$ Bux!</p><button onClick={()=>setEmmaChallenge(null)} className="px-6 py-2.5 rounded-xl bg-green-500 text-white text-sm font-bold font-body">Awesome!</button></div>)
+          :emmaResult==="wrong"?(<div className="animate-fade-up"><p className="text-sm text-red-500 font-body mb-2">Not quite! The word was <strong>{emmaChallenge.word}</strong></p><button onClick={()=>setEmmaChallenge(null)} className="px-6 py-2.5 rounded-xl bg-gray-200 text-gray-600 text-sm font-bold font-body">Next time!</button></div>)
+          :(<div><input type="text" autoFocus value={emmaInput} onChange={e=>setEmmaInput(e.target.value.replace(/[^a-zA-Z]/g,""))} onKeyDown={e=>{if(e.key==="Enter"&&emmaInput.length>0){if(emmaInput.toLowerCase()===emmaChallenge.word.toLowerCase()){setEmmaResult("correct");setSessionStats(p=>({...p,points:p.points+50}));}else{setEmmaResult("wrong");}}}}
+            className="w-full px-4 py-3 rounded-xl border-2 border-violet-300 text-lg font-bold text-center tracking-wider font-body focus:border-violet-500 focus:outline-none mb-3" placeholder="Type the word..."/>
+          <div className="flex gap-2"><button onClick={()=>{if(emmaInput.toLowerCase()===emmaChallenge.word.toLowerCase()){setEmmaResult("correct");setSessionStats(p=>({...p,points:p.points+50}));}else{setEmmaResult("wrong");}}} disabled={!emmaInput} className={`flex-1 py-2.5 rounded-xl text-sm font-bold font-body ${emmaInput?"bg-violet-500 text-white":"bg-gray-200 text-gray-400"}`}>Check!</button>
+            <button onClick={()=>setEmmaChallenge(null)} className="px-4 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-body text-gray-400">Skip</button></div></div>)}
+        </div>
+      </div>)}
+
+      {/* BABS WELCOME INTERSTITIAL */}
+      {showBabsWelcome&&(<div style={{position:"fixed",top:0,left:0,width:"100%",height:"100%",background:"rgba(0,0,0,0.6)",zIndex:998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center animate-fade-up">
+          <img src="/babs-logo.jpeg" alt="Babs" className="w-24 h-24 rounded-full object-cover mx-auto mb-3 border-4 border-pink-200 shadow-lg" />
+          <h2 className="text-2xl font-bold mb-2">Welcome to Katz Kourse!</h2>
+          <p className="text-sm font-body text-gray-500 mb-4">Babs says: <em>&ldquo;Are you ready to pay the fees? And where&apos;s my margarita?&rdquo;</em></p>
+          <div className="bg-pink-50 border-2 border-pink-200 rounded-2xl p-4 mb-5">
+            <p className="text-xs font-body text-pink-700 mb-2 font-semibold">Here&apos;s how it works:</p>
+            <p className="text-xs font-body text-gray-600">1. Add your learners with their own PINs</p>
+            <p className="text-xs font-body text-gray-600">2. They pick subjects and answer questions</p>
+            <p className="text-xs font-body text-gray-600">3. Earn Bab$ Bux and master topics!</p>
+          </div>
+          <button onClick={()=>{setShowBabsWelcome(false);setView("profiles");}} className="w-full py-3 rounded-xl bg-pink-500 text-white text-sm font-bold font-body hover:bg-pink-600 active:scale-[0.98]">Let&apos;s Goooo! {"\u{1F389}"}</button>
+        </div>
+      </div>)}
+
+      {/* FRENCH SURRENDER POPUP */}
+      {showSurrenderPopup&&(<div style={{position:"fixed",top:0,left:0,width:"100%",height:"100%",background:"rgba(0,0,0,0.5)",zIndex:998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div className="bg-white rounded-3xl p-6 max-w-xs w-full text-center animate-fade-up">
+          <div className="text-5xl mb-2">{"\u{1F1EB}\u{1F1F7}"}</div>
+          <h3 className="text-lg font-bold mb-1">Are you French?</h3>
+          <p className="text-sm font-body text-gray-500 mb-1">Babs says: <em>&ldquo;Quitting already?! In my day we studied uphill both ways!&rdquo;</em></p>
+          <p className="text-xs font-body text-gray-400 mb-4">You&apos;ve got {sessionStats.total < 3 ? "barely started" : "a good streak going"}!</p>
+          <div className="flex gap-2.5">
+            <button onClick={()=>setShowSurrenderPopup(false)} className="flex-1 py-2.5 rounded-xl bg-green-500 text-white text-sm font-bold font-body hover:bg-green-600">Keep Going! {"\u{1F4AA}"}</button>
+            <button onClick={()=>{setShowSurrenderPopup(false);goBack();}} className="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-semibold font-body text-gray-500 hover:bg-gray-50">I surrender {"\u{1F3F3}\u{FE0F}"}</button>
+          </div>
+        </div>
+      </div>)}
+
+      <p className="mt-8 text-center text-[10px] text-gray-200 font-body">Powered by Claude &middot; Katz Kourse</p>
     </div>
   );
 }

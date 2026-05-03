@@ -15,7 +15,7 @@ export default function GatePage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8"><div className="text-4xl mb-3">🎓</div><h1 className="text-2xl font-bold font-display">Family Learning Engine</h1><p className="text-sm font-body text-gray-400 mt-1">Enter the family password</p></div>
+        <div className="text-center mb-8"><img src="/babs-logo.jpeg" alt="Babs" className="w-24 h-24 rounded-full object-cover mx-auto mb-3 border-4 border-pink-200 shadow-lg" /><h1 className="text-2xl font-bold font-display">Katz Kourse</h1><p className="text-sm font-body text-gray-400 mt-1">Enter the family password</p></div>
         <form onSubmit={handleSubmit}>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Family password" autoFocus className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 text-base font-body focus:border-amber-400 focus:outline-none mb-3" />
           {error && <p className="text-red-500 text-sm font-body mb-3">{error}</p>}
