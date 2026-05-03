@@ -162,7 +162,7 @@ export default function LearningEngine() {
     const topics=getTopics(subj,activeChild.grade_band as GradeBand);const topic=topics.find(t=>t.id===tid);const tp=progress[subj]?.[tid];
     if(!topic||!tp){clearInterval(iv);setLoading(false);return;}
     try{const r=await fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:getChildBoost(activeChild.id,subj),customFocus:customFocus[activeChild.id]||""})});
+      body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:getChildBoost(activeChild.id,subj)+notesAutoBoost(activeChild.notes||""),customFocus:customFocus[activeChild.id]||""})});
     if(!r.ok)throw new Error(`Server ${r.status}`);const d=await r.json();if(d.error)throw new Error(d.error);
     setQuestion(d);setRecentQs(p=>[...p.slice(-9),d.question]);}catch(e:any){setError(e.message);}finally{clearInterval(iv);setLoading(false);}
   },[activeChild,progress,recentQs,diffBoost]);
