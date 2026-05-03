@@ -123,6 +123,7 @@ export default function LearningEngine() {
   const [placementAnswer,setPlacementAnswer]=useState<number|null>(null);
   const [placementShowResult,setPlacementShowResult]=useState(false);
   const [placementQueue,setPlacementQueue]=useState<string[]>([]);
+  const [milestoneBonus,setMilestoneBonus]=useState(0);
   /* All children progress for parent dash */
   const [allChildProgress,setAllChildProgress]=useState<Record<string,Record<string,Record<string,ProgressRow>>>>({});
   const msgIdx=useRef(0);const loadMsgs=["Thinking up a good one...","Picking the right challenge...","Making this just right...","Almost ready..."];
@@ -186,6 +187,19 @@ export default function LearningEngine() {
     } else {
       const level=scorePlacement(placementCorrects);
       setAssessedLevels(p=>({...p,[activeChild.id]:{...(p[activeChild.id]||{}),[placementSubj]:level}}));
+      /* Apply assessed level to all topics in this subject */
+      const topics=getTopics(placementSubj,activeChild.grade_band as GradeBand);
+      const updatedProgress={...progress};
+      if(!updatedProgress[placementSubj])updatedProgress[placementSubj]={};
+      for(const topic of topics){
+        const tp=updatedProgress[placementSubj][topic.id];
+        if(tp){
+          const newLevel=Math.max(tp.level,level);
+          updatedProgress[placementSubj][topic.id]={...tp,level:newLevel,unlocked:true};
+          fetch("/api/progress",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({child_id:activeChild.id,subject:placementSubj,topic_id:topic.id,updates:{level:newLevel,unlocked:true}})}).catch(()=>{});
+        }
+      }
+      setProgress(updatedProgress);
       if(placementQueue.length>0){
         const next=placementQueue[0];setPlacementQueue(q=>q.slice(1));setPlacementSubj(next);setPlacementStep(0);setPlacementCorrects(0);setPlacementAnswer(null);setPlacementShowResult(false);
       } else { setView("dashboard"); }
@@ -213,20 +227,24 @@ export default function LearningEngine() {
     if(testMode){const nt=testQ+1;const nc=testC+(ok?1:0);setTestQ(nt);setTestC(nc);if(nt>=10){setTestDone(true);setTestPass(nc>=8);if(nc>=9&&activeSubject){const words=EMMA_WORDS[activeSubject]||EMMA_WORDS.math;const w=words[Math.floor(Math.random()*words.length)];setEmmaChallenge({word:w,scrambled:scrambleWord(w.toUpperCase()),topic:activeTopic});setEmmaInput("");setEmmaResult("pending");}}}
     const n={...tp};n.total+=1;
     if(ok){n.correct+=1;n.streak=Math.max(0,n.streak)+1;n.best_streak=Math.max(n.best_streak,n.streak);}else{n.streak=Math.min(0,n.streak)-1;}
-    if(n.streak>=MASTERY.advance){n.level=Math.min(8,n.level+1);n.streak=0;}else if(n.streak<=-MASTERY.struggle){n.level=Math.max(1,n.level-1);n.streak=0;}
+    if(n.streak>=MASTERY.advance){n.level=n.level+1;n.streak=0;}else if(n.streak<=-MASTERY.struggle){n.level=Math.max(1,n.level-1);n.streak=0;}
+    /* Milestone bonus every 10 questions */
+    const newTotal=sessionStats.total+1;
+    let bonusPts=0;
+    if(newTotal>0&&newTotal%10===0){bonusPts=50+(Math.floor(newTotal/10)*25);setMilestoneBonus(bonusPts);if(celEnabled){setCelType(t=>t+1);setShowCel(true);}}
     const pct=n.total>0?(n.correct/n.total)*100:0;const topics=getTopics(activeSubject,activeChild.grade_band as GradeBand);const ci=topics.findIndex(t=>t.id===activeTopic);
     let unlock:string|undefined;
     if(testMode&&testQ+1>=10&&testC+(ok?1:0)>=8){n.mastered=true;if(ci<topics.length-1)unlock=topics[ci+1].id;}
     else if(!testMode&&pct>=MASTERY.masteredPct&&n.total>=MASTERY.minQ&&n.level>=MASTERY.minLevel){n.mastered=true;if(ci<topics.length-1)unlock=topics[ci+1].id;}
     if(n.level>=3&&n.total>=5&&ci<topics.length-1){unlock=unlock||topics[ci+1].id;}
     setProgress(p=>({...p,[activeSubject]:{...p[activeSubject],[activeTopic]:n}}));
-    setSessionStats(p=>({correct:p.correct+(ok?1:0),total:p.total+1,points:p.points+pts,hints:p.hints}));
+    setSessionStats(p=>({correct:p.correct+(ok?1:0),total:p.total+1,points:p.points+pts+bonusPts,hints:p.hints}));
     await fetch("/api/progress",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({child_id:activeChild.id,subject:activeSubject,topic_id:activeTopic,updates:{level:n.level,correct:n.correct,total:n.total,streak:n.streak,best_streak:n.best_streak,mastered:n.mastered,unlock_next_topic_id:unlock}})});
     if(unlock&&progress[activeSubject]?.[unlock])setProgress(p=>({...p,[activeSubject]:{...p[activeSubject],[unlock!]:{...p[activeSubject][unlock!],unlocked:true}}}));
   },[progress,activeChild,activeSubject,activeTopic,question,showResult,celEnabled,testMode,testQ,testC]);
 
   const goSubj=(s:string)=>{setActiveSubject(s);setView("subject");};
-  const goLesson=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(false);setTestDone(false);setView("lesson");genQ(activeSubject,t);};
+  const goLesson=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(false);setTestDone(false);setMilestoneBonus(0);setView("lesson");genQ(activeSubject,t);};
   const goTest=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(true);setTestQ(0);setTestC(0);setTestDone(false);setTestPass(false);setView("lesson");genQ(activeSubject,t,true);};
   const goBack=()=>{window.speechSynthesis?.cancel();if(view==="lesson"){setView("subject");setQuestion(null);setTestMode(false);setTestDone(false);}else if(view==="subject"||view==="parent")setView("dashboard");else if(view==="editChild"||view==="createChild"){setView("profiles");resetForm();}else if(view==="childPin"){setView("profiles");setPinInput("");setPinError("");}else if(view==="parentDash"||view==="achievements"||view==="settings"||view==="placement")setView("dashboard");};
   const tryLeaveLesson=()=>{if(view==="lesson"&&sessionStats.total>0&&!testDone){setShowSurrenderPopup(true);}else{goBack();}};
@@ -480,6 +498,10 @@ export default function LearningEngine() {
               <div className="text-[10px] text-gray-400 font-body">Lv{tp.level}{activeChild&&getChildBoost(activeChild.id,activeSubject)?"+"+getChildBoost(activeChild.id,activeSubject):""} &middot; {sessionStats.correct}/{sessionStats.total}{testMode&&` \u00b7 ${testQ}/10`}</div></div>
             <div className="flex items-center gap-2">{sessionStats.points>0&&<div className="flex items-center gap-1 px-2 py-1 bg-amber-50 border border-amber-200 rounded-full"><StarIcon/><span className="text-xs font-bold font-body text-amber-600">{sessionStats.points}</span></div>}{tp.streak>0&&<div className="flex items-center gap-1 px-2 py-1 bg-orange-50 border border-orange-200 rounded-full"><FlameIcon/><span className="text-xs font-bold font-body text-orange-600">{tp.streak}</span></div>}</div>
           </div>
+          {/* Milestone progress */}
+          {!testMode&&<div className="mb-3 px-1"><div className="flex items-center gap-2"><div className="flex-1"><div className="flex gap-0.5">{Array.from({length:10},(_,i)=>(<div key={i} className="flex-1 h-2 rounded-full" style={{background:i<(sessionStats.total%10)?"#f59e0b":"#e5e7eb"}}/>))}</div></div><span className="text-[10px] font-bold font-body text-amber-500">{sessionStats.total%10}/10</span></div>
+            {milestoneBonus>0&&<div className="text-center mt-1 animate-fade-up"><span className="inline-block px-3 py-1 rounded-full bg-amber-100 border border-amber-300 text-amber-700 font-bold font-body text-xs">{"\u{1F389}"} Milestone! +{milestoneBonus} Bab$ Bux!</span></div>}
+          </div>}
           {testMode&&<div className="mb-3 px-1"><div className="flex gap-1">{Array.from({length:10},(_,i)=>(<div key={i} className="flex-1 h-2 rounded-full" style={{background:i<testQ?(i<testC?"#10b981":"#f87171"):"#e5e7eb"}}/>))}</div></div>}
           {loading&&<div className="text-center py-12"><div className="w-10 h-10 rounded-full border-[3px] mx-auto mb-3 animate-spin" style={{borderColor:subj.colorMid,borderTopColor:subj.color}}/><p className="text-sm font-body text-gray-400">{loadingMsg}</p></div>}
           {error&&!loading&&<div className="text-center py-8"><p className="text-sm text-red-500 font-body mb-3">{error}</p><button onClick={()=>genQ(activeSubject,activeTopic,testMode)} className="px-5 py-2 rounded-lg text-sm font-semibold font-body text-white" style={{background:subj.color}}>Retry</button></div>}
