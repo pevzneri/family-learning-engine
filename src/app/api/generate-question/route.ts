@@ -5,18 +5,21 @@ export async function POST(req: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: "API key not configured" }, { status: 500 });
   try {
     const body = await req.json();
-    const { profileName, gradeBand, learningStyle, notes, interests, subject, topicName, topicDesc, level, streak, totalAnswered, recentQuestions, difficultyBoost } = body;
+    const { profileName, gradeBand, learningStyle, notes, interests, subject, topicName, topicDesc, level, streak, totalAnswered, recentQuestions, difficultyBoost, customFocus, assessedLevel } = body;
     const gradeLabel = gradeBand === "K-1" ? "kindergarten/1st grade" : gradeBand === "2-3" ? "2nd/3rd grade" : "4th/5th grade";
-    const effectiveLevel = Math.min(8, level + (difficultyBoost || 0));
+    const baseLevel = assessedLevel && assessedLevel > level ? assessedLevel : level;
+    const effectiveLevel = Math.min(8, baseLevel + (difficultyBoost || 0));
     const diff = effectiveLevel <= 2 ? "introductory" : effectiveLevel <= 4 ? "practicing" : effectiveLevel <= 6 ? "intermediate" : "challenging";
     const streakNote = streak >= 3 ? "Student is on a streak - increase difficulty slightly." : streak <= -1 ? "Student got the last one wrong - give a confidence-building question." : "";
     const styleDesc = STYLE_MAP[learningStyle] || "visual support";
     let interestNote = interests && interests.trim() ? "\n\nPERSONALIZATION: " + profileName + " loves: " + interests + ". Weave these into scenarios naturally when possible." : "";
+    let assessedNote = assessedLevel ? "\n\nASSESSED LEVEL: This student placed at level " + assessedLevel + "/8 in " + subject + " on a placement test. " + (assessedLevel >= 6 ? "They are ADVANCED — use complex multi-step problems, higher-order thinking, and above-grade-level vocabulary. Do NOT give simple recall questions." : assessedLevel >= 4 ? "They are PROFICIENT — use grade-level problems that require reasoning, not just recall." : "They are DEVELOPING — use supportive scaffolding and build confidence.") : "";
+    let customFocusNote = customFocus && customFocus.trim() ? "\n\nCUSTOM FOCUS FROM PARENT: " + customFocus + ". Incorporate this guidance into question design." : "";
     let safetyNote = "";
     if (subject === "history") safetyNote = "\n\nSAFETY: Never mention rape, molestation, sexual violence, abuse, graphic violence, torture, or gore. Focus on courage, leadership, positive change.";
     if (subject === "bible") safetyNote = "\n\nSAFETY: Never mention rape, molestation, sexual violence, abuse, or graphic violence.\n\nJUDEO-CHRISTIAN BALANCE: Balance Jewish and Christian perspectives equally. Judaism came first. Jesus was Jewish and taught from the Torah. Israel is the Jewish homeland. Frame holidays around meaning, not gifts. Tikkun Olam and Christian service connect. The Torah is the shared foundation.";
     let recentNote = recentQuestions && recentQuestions.length > 0 ? "\n\nDO NOT repeat these:\n" + recentQuestions.map((q: string, i: number) => (i+1) + ". " + q.substring(0, 80)).join("\n") : "";
-    const sysPrompt = `You are a warm tutor for ${profileName}, a ${gradeLabel} student who learns through ${styleDesc}.${notes ? " Context: " + notes : ""}${interestNote}${safetyNote}${recentNote}
+    const sysPrompt = `You are a warm tutor for ${profileName}, a ${gradeLabel} student who learns through ${styleDesc}.${notes ? " Context: " + notes : ""}${interestNote}${assessedNote}${customFocusNote}${safetyNote}${recentNote}
 
 Generate ONE question. Respond ONLY with valid JSON, no markdown, no backticks:
 {"question":"The question text","scene_illustration":"A rich HTML snippet (300-600 chars) creating a VISUAL SCENE for the question using large emoji (font-size:48px-72px), colored gradient backgrounds (use linear-gradient), flexbox, padding:20px, border-radius:20px, and multiple visual elements like a picture book page. For animals show them in habitats. For math show object groups. For geography show flags/landmarks. For history show era symbols. For bible show the scene with characters. ALWAYS include this field with real content.","audio_hint":"A friendly spoken hint (1-2 sentences) helping think about the answer WITHOUT giving it away","image_query":"A Wikipedia article title as backup image (e.g. Polar_bear, Colosseum)","options":["answer without letter prefix","answer","answer","answer"],"correct":0,"explanation":"Why correct","encouragement":"Specific praise"}

@@ -457,16 +457,16 @@ export default function LearningEngine() {
         <div className="text-center mb-5"><span className="text-3xl">{CURRICULUM[activeSubject].icon}</span><h2 className="text-xl font-bold mt-1" style={{color:CURRICULUM[activeSubject].color}}>{CURRICULUM[activeSubject].label}</h2></div>
         {getTopics(activeSubject,activeChild.grade_band as GradeBand).map((topic,idx)=>{
           const tp=progress[activeSubject]?.[topic.id];if(!tp)return null;const subj=CURRICULUM[activeSubject];const canTest=tp.level>=4&&tp.total>=8&&!tp.mastered;
+          const aLv=getAssessedLevel(activeChild.id,activeSubject);const isUnlocked=tp.unlocked||aLv>=4;
           return(<div key={topic.id} className="mb-2">
-            <button onClick={()=>tp.unlocked&&goLesson(topic.id)} disabled={!tp.unlocked} className={`block w-full text-left px-3.5 py-3 rounded-xl border-2 transition ${!tp.unlocked?"opacity-50 cursor-not-allowed border-gray-200 bg-gray-50":tp.mastered?"border-green-200 bg-green-50":"border-gray-200 bg-white hover:border-gray-300 active:scale-[0.99]"}`}>
+            <button onClick={()=>isUnlocked&&goLesson(topic.id)} disabled={!isUnlocked} className={`block w-full text-left px-3.5 py-3 rounded-xl border-2 transition ${!isUnlocked?"opacity-50 cursor-not-allowed border-gray-200 bg-gray-50":tp.mastered?"border-green-200 bg-green-50":"border-gray-200 bg-white hover:border-gray-300 active:scale-[0.99]"}`}>
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2"><span className="text-[10px] font-bold font-body text-gray-300 w-4">{idx+1}</span><div><div className="text-sm font-bold flex items-center gap-1.5">{topic.name}{tp.mastered&&<CheckCircle/>}{!tp.unlocked&&<Lock/>}</div><div className="text-xs font-body text-gray-400">{topic.desc}</div></div></div>
-                {tp.unlocked&&tp.total>0&&<div className="text-right ml-3"><div className="text-sm font-bold font-body" style={{color:subj.color}}>Lv{tp.level}</div></div>}
-              </div>{tp.unlocked&&tp.total>0&&<TopicBar tp={tp} color={subj.color}/>}
+                <div className="flex items-center gap-2"><span className="text-[10px] font-bold font-body text-gray-300 w-4">{idx+1}</span><div><div className="text-sm font-bold flex items-center gap-1.5">{topic.name}{tp.mastered&&<CheckCircle/>}{!isUnlocked&&<Lock/>}</div><div className="text-xs font-body text-gray-400">{topic.desc}</div></div></div>
+                {isUnlocked&&tp.total>0&&<div className="text-right ml-3"><div className="text-sm font-bold font-body" style={{color:subj.color}}>Lv{tp.level}</div></div>}
+              </div>{isUnlocked&&tp.total>0&&<TopicBar tp={tp} color={subj.color}/>}
             </button>
             {canTest&&<button onClick={()=>goTest(topic.id)} className="mt-1 w-full py-2 rounded-lg border-2 border-amber-300 bg-amber-50 text-xs font-bold font-body text-amber-700 hover:bg-amber-100">{"\u{1F3C6}"} Mastery Test (8/10)</button>}
-          </div>);})}
-      </div>)}
+          </div>);})}      </div>)}
 
       {/* LESSON */}
       {view==="lesson"&&activeChild&&activeSubject&&activeTopic&&(()=>{
