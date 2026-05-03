@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Child, GradeBand, GeneratedQuestion, ProgressRow } from "@/lib/types";
-import { CURRICULUM, GRADE_BANDS, LEARNING_STYLES, AVATARS, MASTERY, getTopics } from "@/lib/curriculum";
+import { CURRICULUM, GRADE_BANDS, LEARNING_STYLES, AVATARS, MASTERY, getTopics, PLACEMENT_QUESTIONS, scorePlacement } from "@/lib/curriculum";
 
-type View = "login"|"profiles"|"childPin"|"createChild"|"editChild"|"dashboard"|"subject"|"lesson"|"parent"|"parentDash"|"achievements"|"settings";
+type View = "login"|"profiles"|"childPin"|"createChild"|"editChild"|"dashboard"|"subject"|"lesson"|"parent"|"parentDash"|"achievements"|"settings"|"placement";
 
 /* ─── CELEBRATIONS ─── */
 const CELEBRATIONS = [
@@ -116,6 +116,13 @@ export default function LearningEngine() {
   const [emmaResult,setEmmaResult]=useState<"pending"|"correct"|"wrong">("pending");
   const [hiddenSubjects,setHiddenSubjects]=useState<Record<string,string[]>>({});
   const [customFocus,setCustomFocus]=useState<Record<string,string>>({});
+  const [assessedLevels,setAssessedLevels]=useState<Record<string,Record<string,number>>>({});
+  const [placementSubj,setPlacementSubj]=useState<string|null>(null);
+  const [placementStep,setPlacementStep]=useState(0);
+  const [placementCorrects,setPlacementCorrects]=useState(0);
+  const [placementAnswer,setPlacementAnswer]=useState<number|null>(null);
+  const [placementShowResult,setPlacementShowResult]=useState(false);
+  const [placementQueue,setPlacementQueue]=useState<string[]>([]);
   /* All children progress for parent dash */
   const [allChildProgress,setAllChildProgress]=useState<Record<string,Record<string,Record<string,ProgressRow>>>>({});
   const msgIdx=useRef(0);const loadMsgs=["Thinking up a good one...","Picking the right challenge...","Making this just right...","Almost ready..."];
@@ -129,6 +136,10 @@ export default function LearningEngine() {
   useEffect(()=>{try{localStorage.setItem("kk_hiddenSubjects",JSON.stringify(hiddenSubjects));}catch{}},[hiddenSubjects]);
   useEffect(()=>{try{const s=localStorage.getItem("kk_customFocus");if(s)setCustomFocus(JSON.parse(s));}catch{}},[]);
   useEffect(()=>{try{localStorage.setItem("kk_customFocus",JSON.stringify(customFocus));}catch{}},[customFocus]);
+  useEffect(()=>{try{const s=localStorage.getItem("kk_assessedLevels");if(s)setAssessedLevels(JSON.parse(s));}catch{}},[]);
+  useEffect(()=>{try{localStorage.setItem("kk_assessedLevels",JSON.stringify(assessedLevels));}catch{}},[assessedLevels]);
+  const getAssessedLevel=(childId:string,subj:string)=>assessedLevels[childId]?.[subj]||0;
+  const childHasAssessment=(childId:string)=>!!assessedLevels[childId]&&Object.keys(assessedLevels[childId]).length>0;
   const getChildHidden=(childId:string):string[]=>hiddenSubjects[childId]||[];
   const toggleChildSubject=(childId:string,subj:string)=>{setHiddenSubjects(p=>{const cur=p[childId]||[];return{...p,[childId]:cur.includes(subj)?cur.filter(s=>s!==subj):[...cur,subj]};});};
   const getChildBoost=(childId:string,subj:string)=>(diffBoost[childId]?.[subj]||0);
@@ -155,6 +166,32 @@ export default function LearningEngine() {
   const deleteChild=async(id:string)=>{if(!confirm("Delete?"))return;await fetch(`/api/children?id=${id}`,{method:"DELETE"});setChildren(children.filter(c=>c.id!==id));if(activeChild?.id===id){setActiveChild(null);setView("profiles");}};
   const startEdit=(c:Child)=>{sfN(c.name);sfP(c.pin);sfG(c.grade_band as GradeBand);sfS(c.learning_style);sfA(c.avatar);sfNt(c.notes||"");sfI(c.interests||"");sEId(c.id);setView("editChild");};
 
+  /* ─── PLACEMENT TEST ─── */
+  const startPlacement=(subjects?:string[])=>{
+    const subjs=subjects||Object.keys(CURRICULUM).filter(k=>!activeChild||!getChildHidden(activeChild.id).includes(k));
+    if(subjs.length===0)return;
+    setPlacementQueue(subjs.slice(1));setPlacementSubj(subjs[0]);setPlacementStep(0);setPlacementCorrects(0);setPlacementAnswer(null);setPlacementShowResult(false);setView("placement");
+  };
+  const placementSelectAnswer=(idx:number)=>{
+    if(placementShowResult||!placementSubj)return;
+    const qs=PLACEMENT_QUESTIONS[placementSubj];if(!qs||!qs[placementStep])return;
+    setPlacementAnswer(idx);setPlacementShowResult(true);
+    if(idx===qs[placementStep].correct)setPlacementCorrects(c=>c+1);
+  };
+  const placementNext=()=>{
+    if(!placementSubj||!activeChild)return;
+    const qs=PLACEMENT_QUESTIONS[placementSubj];
+    if(placementStep+1<(qs?.length||0)){
+      setPlacementStep(s=>s+1);setPlacementAnswer(null);setPlacementShowResult(false);
+    } else {
+      const level=scorePlacement(placementCorrects);
+      setAssessedLevels(p=>({...p,[activeChild.id]:{...(p[activeChild.id]||{}),[placementSubj]:level}}));
+      if(placementQueue.length>0){
+        const next=placementQueue[0];setPlacementQueue(q=>q.slice(1));setPlacementSubj(next);setPlacementStep(0);setPlacementCorrects(0);setPlacementAnswer(null);setPlacementShowResult(false);
+      } else { setView("dashboard"); }
+    }
+  };
+
   const genQ=useCallback(async(subj:string,tid:string,test?:boolean)=>{
     if(!activeChild)return;setLoading(true);setError(null);setSelectedAnswer(null);setShowResult(false);setLastPoints(0);
     msgIdx.current=0;setLoadingMsg(loadMsgs[0]);
@@ -162,7 +199,7 @@ export default function LearningEngine() {
     const topics=getTopics(subj,activeChild.grade_band as GradeBand);const topic=topics.find(t=>t.id===tid);const tp=progress[subj]?.[tid];
     if(!topic||!tp){clearInterval(iv);setLoading(false);return;}
     try{const r=await fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:getChildBoost(activeChild.id,subj)+notesAutoBoost(activeChild.notes||""),customFocus:customFocus[activeChild.id]||""})});
+      body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:getChildBoost(activeChild.id,subj)+notesAutoBoost(activeChild.notes||""),customFocus:customFocus[activeChild.id]||"",assessedLevel:getAssessedLevel(activeChild.id,subj)})});
     if(!r.ok)throw new Error(`Server ${r.status}`);const d=await r.json();if(d.error)throw new Error(d.error);
     setQuestion(d);setRecentQs(p=>[...p.slice(-9),d.question]);}catch(e:any){setError(e.message);}finally{clearInterval(iv);setLoading(false);}
   },[activeChild,progress,recentQs,diffBoost]);
@@ -191,7 +228,7 @@ export default function LearningEngine() {
   const goSubj=(s:string)=>{setActiveSubject(s);setView("subject");};
   const goLesson=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(false);setTestDone(false);setView("lesson");genQ(activeSubject,t);};
   const goTest=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(true);setTestQ(0);setTestC(0);setTestDone(false);setTestPass(false);setView("lesson");genQ(activeSubject,t,true);};
-  const goBack=()=>{window.speechSynthesis?.cancel();if(view==="lesson"){setView("subject");setQuestion(null);setTestMode(false);setTestDone(false);}else if(view==="subject"||view==="parent")setView("dashboard");else if(view==="editChild"||view==="createChild"){setView("profiles");resetForm();}else if(view==="childPin"){setView("profiles");setPinInput("");setPinError("");}else if(view==="parentDash"||view==="achievements"||view==="settings")setView("dashboard");};
+  const goBack=()=>{window.speechSynthesis?.cancel();if(view==="lesson"){setView("subject");setQuestion(null);setTestMode(false);setTestDone(false);}else if(view==="subject"||view==="parent")setView("dashboard");else if(view==="editChild"||view==="createChild"){setView("profiles");resetForm();}else if(view==="childPin"){setView("profiles");setPinInput("");setPinError("");}else if(view==="parentDash"||view==="achievements"||view==="settings"||view==="placement")setView("dashboard");};
   const tryLeaveLesson=()=>{if(view==="lesson"&&sessionStats.total>0&&!testDone){setShowSurrenderPopup(true);}else{goBack();}};
   const goProfiles=()=>{try{localStorage.removeItem("kk_activeChild");}catch{}setView("profiles");setActiveChild(null);setActiveSubject(null);};
   const getStats=(s:string,prog?:Record<string,Record<string,ProgressRow>>)=>{const p=prog||progress;if(!activeChild&&!prog)return{pct:0,done:0,total:0};const gb=activeChild?.grade_band||"2-3";const t=getTopics(s,gb as GradeBand);const d=t.filter(x=>p[s]?.[x.id]?.mastered).length;return{pct:t.length>0?Math.round((d/t.length)*100):0,done:d,total:t.length};};
@@ -341,6 +378,13 @@ export default function LearningEngine() {
           <button onClick={()=>setView("achievements")} className="flex items-center gap-2 px-4 py-2 bg-violet-50 border border-violet-200 rounded-full hover:bg-violet-100"><span className="text-sm">{"\u{1F3C6}"}</span><span className="text-sm font-bold font-body text-violet-700">Badges</span></button>
           <button onClick={()=>setView("settings")} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-full hover:bg-gray-100"><span className="text-sm">{"\u{2699}\u{FE0F}"}</span></button>
         </div>
+        {!childHasAssessment(activeChild.id)&&(<button onClick={()=>startPlacement()} className="w-full mb-4 py-3.5 rounded-2xl border-2 border-pink-300 bg-pink-50 text-center hover:bg-pink-100 active:scale-[0.99]">
+          <div className="text-sm font-bold font-body text-pink-700">{"\u{1F4CB}"} Take Placement Test <span className="font-normal text-pink-400">(Recommended)</span></div>
+          <div className="text-[10px] font-body text-pink-400 mt-0.5">Helps Babs find the right level for each subject</div>
+        </button>)}
+        {childHasAssessment(activeChild.id)&&(<div className="flex flex-wrap justify-center gap-1.5 mb-4">{Object.entries(assessedLevels[activeChild.id]||{}).map(([k,lv])=>(<div key={k} className="flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-200"><span className="text-xs">{CURRICULUM[k]?.icon}</span><span className="text-[10px] font-bold font-body text-blue-600">Lv{lv}</span></div>))}
+          <button onClick={()=>startPlacement()} className="px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-[10px] font-body text-gray-400 hover:bg-gray-100">Retake</button>
+        </div>)}
         {Object.entries(CURRICULUM).filter(([k])=>!activeChild||!getChildHidden(activeChild.id).includes(k)).map(([k,s])=>{const st=getStats(k);return(
           <button key={k} onClick={()=>goSubj(k)} className="block w-full text-left p-5 mb-3 rounded-2xl border-2 hover:shadow-md active:scale-[0.99]" style={{borderColor:s.colorMid,background:s.colorLight}}>
             <div className="flex justify-between items-center"><div><span className="text-xl mr-2">{s.icon}</span><span className="text-lg font-bold" style={{color:s.color}}>{s.label}</span><div className="text-xs font-body text-gray-400 mt-0.5 ml-8">{st.done}/{st.total} mastered</div></div><div className="text-2xl font-bold" style={{color:s.color}}>{st.pct}%</div></div>
@@ -379,6 +423,34 @@ export default function LearningEngine() {
           <div className="flex flex-wrap gap-2">{voices.slice(0,6).map((v,i)=>(<button key={i} onClick={()=>{setVoiceIdx(i);speak("Hi "+activeChild.name+"!",i);}} className={`px-3 py-1.5 rounded-lg text-xs font-body ${voiceIdx===i?"bg-violet-100 border-2 border-violet-400 text-violet-700 font-bold":"bg-gray-50 border border-gray-200 text-gray-500"}`}>{v.split(" ")[0]}</button>))}</div>
         </div>
       </div>)}
+
+      {/* PLACEMENT TEST */}
+      {view==="placement"&&activeChild&&placementSubj&&(()=>{
+        const subj=CURRICULUM[placementSubj];const qs=PLACEMENT_QUESTIONS[placementSubj]||[];const q=qs[placementStep];
+        if(!q)return null;
+        const totalSubjects=Object.keys(CURRICULUM).filter(k=>!getChildHidden(activeChild.id).includes(k)).length;
+        const currentSubjIdx=totalSubjects-placementQueue.length-1;
+        return(<div className="animate-fade-up">
+          <div className="text-center mb-4">
+            <div className="text-3xl mb-1">{"\u{1F4CB}"}</div>
+            <h2 className="text-lg font-bold">Placement Test</h2>
+            <div className="text-xs font-body text-gray-400 mt-1"><span style={{color:subj.color}} className="font-semibold">{subj.icon} {subj.label}</span> — Question {placementStep+1} of {qs.length}</div>
+            <div className="flex justify-center gap-1 mt-2">{Array.from({length:totalSubjects},(_,i)=>(<div key={i} className={`w-6 h-1.5 rounded-full ${i<currentSubjIdx?"bg-green-400":i===currentSubjIdx?"bg-blue-400":"bg-gray-200"}`}/>))}</div>
+          </div>
+          <div className="px-4 py-4 bg-gray-50 rounded-2xl border border-gray-200 mb-4">
+            <div className="text-base font-semibold leading-relaxed">{q.q}</div>
+          </div>
+          <div className="flex flex-col gap-2.5 mb-4">{q.opts.map((opt,idx)=>{const isSel=placementAnswer===idx;const isC=idx===q.correct;const gG=placementShowResult&&isC;const gR=placementShowResult&&isSel&&!isC;
+            return(<button key={idx} onClick={()=>placementSelectAnswer(idx)} disabled={placementShowResult} className={`px-3.5 py-3 rounded-xl border-2 text-left text-sm flex items-center gap-3 active:scale-[0.98] transition ${gG?"border-green-400 bg-green-50 text-green-900":gR?"border-red-300 bg-red-50 text-red-900":placementShowResult?"border-gray-200 bg-white":"border-gray-200 bg-white hover:border-gray-300"}`}>
+              <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold font-body flex-shrink-0" style={{background:gG?"#10b981":gR?"#f87171":subj.colorLight,color:gG||gR?"#fff":subj.color}}>{gG?"\u2713":gR?"\u2717":String.fromCharCode(65+idx)}</span>
+              <span>{opt}</span>
+            </button>);})}</div>
+          {placementShowResult&&<div className="flex gap-2.5">
+            <button onClick={placementNext} className="flex-1 py-2.5 rounded-xl text-sm font-semibold font-body text-white hover:opacity-90" style={{background:subj.color}}>{placementStep+1<qs.length?"Next →":placementQueue.length>0?"Next Subject →":"See Results"}</button>
+            <button onClick={()=>setView("dashboard")} className="px-4 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-body text-gray-400 hover:bg-gray-50">Skip rest</button>
+          </div>}
+        </div>);
+      })()}
 
       {/* SUBJECT */}
       {view==="subject"&&activeChild&&activeSubject&&(<div className="animate-fade-up">

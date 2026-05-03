@@ -251,3 +251,59 @@ export function buildProgressDefaults(gradeBand: GradeBand): { subject: string; 
 export function getTopics(subject: string, gradeBand: GradeBand): Topic[] {
   return CURRICULUM[subject]?.topics[gradeBand] || [];
 }
+
+/* ─── PLACEMENT TEST QUESTIONS ─── */
+export type PlacementQ = { q: string; opts: string[]; correct: number; level: number };
+export const PLACEMENT_QUESTIONS: Record<string, PlacementQ[]> = {
+  math: [
+    { q: "What is 7 + 5?", opts: ["11","12","13","10"], correct: 1, level: 2 },
+    { q: "What is 48 + 35?", opts: ["73","83","82","93"], correct: 1, level: 3 },
+    { q: "What is 7 × 8?", opts: ["54","56","48","64"], correct: 1, level: 5 },
+    { q: "Which fraction is larger: 3/4 or 2/3?", opts: ["3/4","2/3","They are equal","Cannot tell"], correct: 0, level: 6 },
+    { q: "If 4x + 3 = 19, what is x?", opts: ["3","4","5","6"], correct: 1, level: 8 },
+  ],
+  reading: [
+    { q: "Which word rhymes with 'cake'?", opts: ["Cook","Lake","Kick","Cup"], correct: 1, level: 2 },
+    { q: "What is the 'main idea' of a passage?", opts: ["The first sentence","What it's mostly about","The longest paragraph","The title"], correct: 1, level: 3 },
+    { q: "'The wind whispered through the trees.' This is an example of:", opts: ["Simile","Alliteration","Personification","Hyperbole"], correct: 2, level: 5 },
+    { q: "An author writes to persuade. What is their purpose?", opts: ["To entertain","To inform","To convince you of something","To describe a place"], correct: 2, level: 6 },
+    { q: "A narrator who knows all characters' thoughts is called:", opts: ["First person","Second person","Third person limited","Third person omniscient"], correct: 3, level: 8 },
+  ],
+  science: [
+    { q: "Which of these is a living thing?", opts: ["Rock","Water","Tree","Cloud"], correct: 2, level: 2 },
+    { q: "Water turning into ice is called:", opts: ["Melting","Evaporation","Freezing","Condensation"], correct: 2, level: 3 },
+    { q: "Plants make their own food using sunlight. This process is called:", opts: ["Respiration","Photosynthesis","Digestion","Germination"], correct: 1, level: 5 },
+    { q: "In a food chain, what do we call an animal that eats other animals?", opts: ["Producer","Decomposer","Predator","Herbivore"], correct: 2, level: 6 },
+    { q: "Which type of energy transformation happens in a battery-powered flashlight?", opts: ["Light → Chemical","Chemical → Electrical → Light","Nuclear → Heat","Sound → Light"], correct: 1, level: 8 },
+  ],
+  geography: [
+    { q: "How many continents are there?", opts: ["5","6","7","8"], correct: 2, level: 2 },
+    { q: "Which is the largest ocean?", opts: ["Atlantic","Indian","Arctic","Pacific"], correct: 3, level: 3 },
+    { q: "A capital city is where a country's _____ is located.", opts: ["Biggest mall","Government","Largest population","Best weather"], correct: 1, level: 5 },
+    { q: "Lines of latitude measure distance from the:", opts: ["Prime Meridian","North Pole","Equator","International Date Line"], correct: 2, level: 6 },
+    { q: "Which climate zone is found near the equator?", opts: ["Polar","Temperate","Tropical","Arid"], correct: 2, level: 8 },
+  ],
+  history: [
+    { q: "Who was the first President of the United States?", opts: ["Abraham Lincoln","George Washington","Thomas Jefferson","John Adams"], correct: 1, level: 2 },
+    { q: "What did explorers do?", opts: ["Built houses","Traveled to find new lands","Invented computers","Painted pictures"], correct: 1, level: 3 },
+    { q: "What is democracy?", opts: ["One person rules","People vote to decide","Nobody is in charge","Only rich people decide"], correct: 1, level: 5 },
+    { q: "The Renaissance was a period of renewed interest in:", opts: ["War and conquest","Art, science, and learning","Farming only","Sports and games"], correct: 1, level: 6 },
+    { q: "What was the main cause of the American Revolution?", opts: ["Disagreements about food","Taxation without representation","Land disputes with France","Religious differences"], correct: 1, level: 8 },
+  ],
+  bible: [
+    { q: "Who built the ark in the Bible?", opts: ["Moses","Abraham","Noah","David"], correct: 2, level: 2 },
+    { q: "How many commandments did Moses receive?", opts: ["5","7","10","12"], correct: 2, level: 3 },
+    { q: "What does 'Tikkun Olam' mean?", opts: ["Rest on Shabbat","Repairing the world","Reading the Torah","Lighting candles"], correct: 1, level: 5 },
+    { q: "What is Tzedakah?", opts: ["A holiday","A prayer","Charity and giving","A type of bread"], correct: 2, level: 6 },
+    { q: "The Torah consists of how many books?", opts: ["3","4","5","7"], correct: 2, level: 8 },
+  ],
+};
+
+export function scorePlacement(correct: number): number {
+  if (correct <= 0) return 1;
+  if (correct === 1) return 2;
+  if (correct === 2) return 3;
+  if (correct === 3) return 5;
+  if (correct === 4) return 6;
+  return 8;
+}
