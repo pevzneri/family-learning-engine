@@ -252,6 +252,13 @@ export function getTopics(subject: string, gradeBand: GradeBand): Topic[] {
   return CURRICULUM[subject]?.topics[gradeBand] || [];
 }
 
+export function effectiveGradeBand(enrolled: GradeBand, assessedLevel: number): GradeBand {
+  if (!assessedLevel || assessedLevel < 6) return enrolled;
+  if (enrolled === "K-1") return "2-3";
+  if (enrolled === "2-3") return "4-5";
+  return "4-5";
+}
+
 /* ─── PLACEMENT TEST QUESTIONS ─── */
 export type PlacementQ = { q: string; opts: string[]; correct: number; level: number };
 export const PLACEMENT_QUESTIONS: Record<string, PlacementQ[]> = {
@@ -306,11 +313,4 @@ export function scorePlacement(correct: number): number {
   if (correct === 3) return 5;
   if (correct === 4) return 6;
   return 8;
-}
-
-export function effectiveGradeBand(enrolled: GradeBand, assessedLevel: number): GradeBand {
-  if (!assessedLevel || assessedLevel < 6) return enrolled;
-  if (enrolled === "K-1") return "2-3";
-  if (enrolled === "2-3") return "4-5";
-  return "4-5";
 }

@@ -124,9 +124,13 @@ export default function LearningEngine() {
   const [placementShowResult,setPlacementShowResult]=useState(false);
   const [placementQueue,setPlacementQueue]=useState<string[]>([]);
   const [milestoneBonus,setMilestoneBonus]=useState(0);
+  const [showScratchPad,setShowScratchPad]=useState(false);
+  const [scratchWork,setScratchWork]=useState("");
   /* All children progress for parent dash */
   const [allChildProgress,setAllChildProgress]=useState<Record<string,Record<string,Record<string,ProgressRow>>>>({});
   const msgIdx=useRef(0);const loadMsgs=["Thinking up a good one...","Picking the right challenge...","Making this just right...","Almost ready..."];
+  const qCache=useRef<Record<string,any[]>>({});
+  const preloadingRef=useRef(false);
   const [fN,sfN]=useState("");const [fP,sfP]=useState("");const [fG,sfG]=useState<GradeBand>("2-3");
   const [fS,sfS]=useState("visual");const [fA,sfA]=useState("\u{1F98A}");const [fNt,sfNt]=useState("");const [fI,sfI]=useState("");const [eId,sEId]=useState<string|null>(null);
 
@@ -147,7 +151,7 @@ export default function LearningEngine() {
   const getChildBoost=(childId:string,subj:string)=>(diffBoost[childId]?.[subj]||0);
   const setChildBoost=(childId:string,subj:string,val:number)=>{setDiffBoost(p=>({...p,[childId]:{...(p[childId]||{}),[subj]:val}}));};
   useEffect(()=>{fetch("/api/children").then(async r=>{if(r.ok){const d=await r.json();const kids=d.children||[];setChildren(kids);setParent({id:"s",name:"",email:""});
-    try{const savedId=localStorage.getItem("kk_activeChild");if(savedId){const saved=kids.find((c:Child)=>c.id===savedId);if(saved){setActiveChild(saved);loadProg(saved.id);setView("dashboard");return;}}}catch{}
+    try{const savedId=localStorage.getItem("kk_activeChild");if(savedId){const saved=kids.find((c:Child)=>c.id===savedId);if(saved){setActiveChild(saved);loadProg(saved.id).then(prog=>preloadQuestions(saved,prog));setView("dashboard");return;}}}catch{}
     setView("profiles");}}).catch(()=>{});},[]);
 
   const handleAuth=async(e:React.FormEvent)=>{e.preventDefault();setAuthLoading(true);setAuthError("");
@@ -155,8 +159,39 @@ export default function LearningEngine() {
     const b=authMode==="signup"?{email:authEmail,password:authPassword,name:authName}:{email:authEmail,password:authPassword};
     try{const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});const d=await r.json();if(!r.ok)throw new Error(d.error);setParent(d.parent);logAudit("parent_login",d.parent.email);const cr=await fetch("/api/children");const cd=await cr.json();setChildren(cd.children||[]);if(authMode==="signup"){setShowBabsWelcome(true);}else{setView("profiles");}}catch(e:any){setAuthError(e.message);}setAuthLoading(false);};
   const handleLogout=()=>{document.cookie="fle_session=; max-age=0; path=/";try{localStorage.removeItem("kk_activeChild");}catch{}setParent(null);setActiveChild(null);setView("login");setChildren([]);setProgress({});setAllChildProgress({});};
-  const handlePin=(child:Child,val?:string)=>{if((val||pinInput)===child.pin){setActiveChild(child);setPinInput("");setPinError("");loadProg(child.id);logAudit("child_login",child.name,child.id);try{localStorage.setItem("kk_activeChild",child.id);}catch{}setView("dashboard");}else{setPinError("Wrong PIN");setPinInput("");}};
-  const loadProg=async(id:string)=>{const r=await fetch(`/api/progress?child_id=${id}`);const d=await r.json();const bs:Record<string,Record<string,ProgressRow>>={};(d.progress||[]).forEach((p:ProgressRow)=>{if(!bs[p.subject])bs[p.subject]={};bs[p.subject][p.topic_id]=p;});setProgress(bs);};
+  const handlePin=(child:Child,val?:string)=>{if((val||pinInput)===child.pin){setActiveChild(child);setPinInput("");setPinError("");loadProg(child.id).then(prog=>preloadQuestions(child,prog));logAudit("child_login",child.name,child.id);try{localStorage.setItem("kk_activeChild",child.id);}catch{}setView("dashboard");}else{setPinError("Wrong PIN");setPinInput("");}};
+  const loadProg=async(id:string)=>{const r=await fetch(`/api/progress?child_id=${id}`);const d=await r.json();const bs:Record<string,Record<string,ProgressRow>>={};(d.progress||[]).forEach((p:ProgressRow)=>{if(!bs[p.subject])bs[p.subject]={};bs[p.subject][p.topic_id]=p;});setProgress(bs);return bs;};
+
+  const preloadQuestions=async(child:Child,prog:Record<string,Record<string,ProgressRow>>)=>{
+    if(preloadingRef.current)return;preloadingRef.current=true;qCache.current={};
+    const hidden=getChildHidden(child.id);
+    const subjects=Object.keys(CURRICULUM).filter(k=>!hidden.includes(k));
+    const fetches:Promise<void>[]=[];
+    for(const subj of subjects){
+      const gb=effectiveGradeBand(child.grade_band as GradeBand,getAssessedLevel(child.id,subj));
+      const topics=getTopics(subj,gb);
+      const firstUnlocked=topics.find(t=>{const tp=prog[subj]?.[t.id];return tp?.unlocked||getAssessedLevel(child.id,subj)>=4;});
+      if(!firstUnlocked)continue;
+      const tp=prog[subj]?.[firstUnlocked.id]||{level:getAssessedLevel(child.id,subj)||1,streak:0,total:0};
+      const key=`${subj}:${firstUnlocked.id}`;
+      fetches.push(
+        fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({profileName:child.name,gradeBand:child.grade_band,learningStyle:child.learning_style,notes:child.notes,interests:child.interests,subject:subj,topicName:firstUnlocked.name,topicDesc:firstUnlocked.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:[],difficultyBoost:getChildBoost(child.id,subj)+notesAutoBoost(child.notes||""),customFocus:customFocus[child.id]||"",assessedLevel:getAssessedLevel(child.id,subj)})
+        }).then(async r=>{if(r.ok){const d=await r.json();if(!d.error){if(!qCache.current[key])qCache.current[key]=[];qCache.current[key].push(d);}}}).catch(()=>{})
+      );
+    }
+    await Promise.allSettled(fetches);preloadingRef.current=false;
+  };
+
+  const preloadOne=async(child:Child,subj:string,tid:string,tp:ProgressRow)=>{
+    const gb=effectiveGradeBand(child.grade_band as GradeBand,getAssessedLevel(child.id,subj));
+    const topics=getTopics(subj,gb);const topic=topics.find(t=>t.id===tid);if(!topic)return;
+    const key=`${subj}:${tid}`;
+    if(qCache.current[key]?.length>=2)return;
+    fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({profileName:child.name,gradeBand:child.grade_band,learningStyle:child.learning_style,notes:child.notes,interests:child.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:[],difficultyBoost:getChildBoost(child.id,subj)+notesAutoBoost(child.notes||""),customFocus:customFocus[child.id]||"",assessedLevel:getAssessedLevel(child.id,subj)})
+    }).then(async r=>{if(r.ok){const d=await r.json();if(!d.error){if(!qCache.current[key])qCache.current[key]=[];qCache.current[key].push(d);}}}).catch(()=>{});
+  };
   const loadAllProgress=async()=>{const all:Record<string,Record<string,Record<string,ProgressRow>>>={};for(const c of children){const r=await fetch(`/api/progress?child_id=${c.id}`);const d=await r.json();const bs:Record<string,Record<string,ProgressRow>>={};(d.progress||[]).forEach((p:ProgressRow)=>{if(!bs[p.subject])bs[p.subject]={};bs[p.subject][p.topic_id]=p;});all[c.id]=bs;}setAllChildProgress(all);};
   const logAudit=async(action:string,detail?:string,childId?:string)=>{try{await fetch("/api/audit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,detail:detail||"",child_id:childId||null})});}catch{}};
   const loadAuditLogs=async()=>{const r=await fetch("/api/audit");const d=await r.json();setAuditLogs(d.logs||[]);};
@@ -213,7 +248,17 @@ export default function LearningEngine() {
   };
 
   const genQ=useCallback(async(subj:string,tid:string,test?:boolean)=>{
-    if(!activeChild)return;setLoading(true);setError(null);setSelectedAnswer(null);setShowResult(false);setLastPoints(0);
+    if(!activeChild)return;setSelectedAnswer(null);setShowResult(false);setLastPoints(0);
+    const key=`${subj}:${tid}`;
+    /* Check cache first */
+    const cached=qCache.current[key]?.shift();
+    if(cached&&!test){
+      setQuestion(cached);setRecentQs(p=>[...p.slice(-9),cached.question]);setLoading(false);
+      /* Refill cache in background */
+      const tp=progress[subj]?.[tid];if(tp)preloadOne(activeChild,subj,tid,tp);
+      return;
+    }
+    setLoading(true);setError(null);
     msgIdx.current=0;setLoadingMsg(loadMsgs[0]);
     const iv=setInterval(()=>{msgIdx.current=Math.min(msgIdx.current+1,3);setLoadingMsg(loadMsgs[msgIdx.current]);},2500);
     const topics=getTopics(subj,getEffGB(activeChild.id,subj));const topic=topics.find(t=>t.id===tid);let tp=progress[subj]?.[tid];
@@ -223,7 +268,10 @@ export default function LearningEngine() {
     try{const r=await fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:getChildBoost(activeChild.id,subj)+notesAutoBoost(activeChild.notes||""),customFocus:customFocus[activeChild.id]||"",assessedLevel:getAssessedLevel(activeChild.id,subj)})});
     if(!r.ok)throw new Error(`Server ${r.status}`);const d=await r.json();if(d.error)throw new Error(d.error);
-    setQuestion(d);setRecentQs(p=>[...p.slice(-9),d.question]);}catch(e:any){setError(e.message);}finally{clearInterval(iv);setLoading(false);}
+    setQuestion(d);setRecentQs(p=>[...p.slice(-9),d.question]);
+    /* Preload next one for this topic */
+    preloadOne(activeChild,subj,tid,tp);
+    }catch(e:any){setError(e.message);}finally{clearInterval(iv);setLoading(false);}
   },[activeChild,progress,recentQs,diffBoost]);
 
   const handleAns=useCallback(async(idx:number)=>{
@@ -251,8 +299,14 @@ export default function LearningEngine() {
     if(unlock&&progress[activeSubject]?.[unlock])setProgress(p=>({...p,[activeSubject]:{...p[activeSubject],[unlock!]:{...p[activeSubject][unlock!],unlocked:true}}}));
   },[progress,activeChild,activeSubject,activeTopic,question,showResult,celEnabled,testMode,testQ,testC]);
 
-  const goSubj=(s:string)=>{setActiveSubject(s);setView("subject");};
-  const goLesson=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(false);setTestDone(false);setMilestoneBonus(0);setView("lesson");genQ(activeSubject,t);};
+  const goSubj=(s:string)=>{setActiveSubject(s);setView("subject");
+    /* Preload first question for every topic in this subject */
+    if(activeChild){const gb=getEffGB(activeChild.id,s);const topics=getTopics(s,gb);
+    for(const t of topics){const key=`${s}:${t.id}`;if(qCache.current[key]?.length)continue;
+      const tp=progress[s]?.[t.id]||{level:getAssessedLevel(activeChild.id,s)||1,streak:0,total:0};
+      preloadOne(activeChild,s,t.id,tp as ProgressRow);}}
+  };
+  const goLesson=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(false);setTestDone(false);setMilestoneBonus(0);setShowScratchPad(false);setScratchWork("");setView("lesson");genQ(activeSubject,t);};
   const goTest=(t:string)=>{if(!activeSubject)return;setActiveTopic(t);setSessionStats({correct:0,total:0,points:0,hints:0});setRecentQs([]);setTestMode(true);setTestQ(0);setTestC(0);setTestDone(false);setTestPass(false);setView("lesson");genQ(activeSubject,t,true);};
   const goBack=()=>{window.speechSynthesis?.cancel();if(view==="lesson"){setView("subject");setQuestion(null);setTestMode(false);setTestDone(false);}else if(view==="subject"||view==="parent")setView("dashboard");else if(view==="editChild"||view==="createChild"){setView("profiles");resetForm();}else if(view==="childPin"){setView("profiles");setPinInput("");setPinError("");}else if(view==="parentDash"||view==="achievements"||view==="settings"||view==="placement")setView("dashboard");};
   const tryLeaveLesson=()=>{if(view==="lesson"&&sessionStats.total>0&&!testDone){setShowSurrenderPopup(true);}else{goBack();}};
@@ -523,6 +577,36 @@ export default function LearningEngine() {
               <button onClick={()=>speak(question.question,voiceIdx)} className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center hover:border-violet-400 hover:bg-violet-50" title="Read aloud"><SpeakerIcon/></button>
             </div>
             {!showResult&&question.audio_hint&&<button onClick={()=>{speak(question.audio_hint,voiceIdx);setSessionStats(p=>({...p,hints:p.hints+1}));}} className="flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-violet-300 bg-violet-50 text-sm font-body font-semibold text-violet-600 hover:bg-violet-100 mb-3"><SpeakerIcon/> Need a hint?</button>}
+            {/* MATH SCRATCH PAD */}
+            {activeSubject==="math"&&tp.level>=3&&!showResult&&(
+              <div className="mb-3">
+                <button onClick={()=>{setShowScratchPad(!showScratchPad);if(!showScratchPad)setScratchWork("");}} className={`flex items-center gap-2 px-4 py-2 rounded-xl border-2 text-sm font-body font-semibold ${showScratchPad?"border-amber-400 bg-amber-50 text-amber-700":"border-gray-200 bg-white text-gray-500 hover:border-amber-300"}`}>{"\u{270F}\u{FE0F}"} {showScratchPad?"Hide":"Show"} work area</button>
+                {showScratchPad&&(<div className="mt-2 animate-fade-up">
+                  <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4">
+                    <div className="flex gap-3 mb-3">
+                      <div className="flex-1">
+                        <div className="text-[10px] font-bold font-body text-amber-600 mb-1">Show your work:</div>
+                        <textarea value={scratchWork} onChange={e=>setScratchWork(e.target.value)} rows={4} placeholder="Write out your steps here...&#10;&#10;Example:&#10;  456&#10;x  23&#10;-----&#10; 1368  (456 × 3)&#10; 9120  (456 × 20)&#10;-----&#10;10488" className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-white text-sm font-mono resize-y focus:border-amber-500 focus:outline-none" style={{lineHeight:"1.8"}}/>
+                      </div>
+                      <div className="w-28 flex-shrink-0">
+                        <div className="text-[10px] font-bold font-body text-amber-600 mb-1">Place values:</div>
+                        <div className="bg-white rounded-xl border border-amber-300 p-2 text-center">
+                          <div className="grid grid-cols-4 gap-0.5 text-[9px] font-bold font-body text-amber-500 mb-1"><span>Th</span><span>H</span><span>T</span><span>O</span></div>
+                          <div className="grid grid-cols-4 gap-0.5">{[0,1,2,3].map(i=>(<div key={i} className="h-8 border border-dashed border-amber-200 rounded bg-amber-50/50"/>))}</div>
+                          <div className="grid grid-cols-4 gap-0.5 mt-0.5">{[0,1,2,3].map(i=>(<div key={i} className="h-8 border border-dashed border-amber-200 rounded bg-amber-50/50"/>))}</div>
+                          <div className="border-t border-amber-300 mt-1 pt-1"><div className="grid grid-cols-4 gap-0.5">{[0,1,2,3].map(i=>(<div key={i} className="h-8 border border-dashed border-amber-200 rounded bg-amber-50/50"/>))}</div></div>
+                        </div>
+                        <div className="text-[9px] font-body text-amber-400 text-center mt-1">Drag numbers mentally!</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 text-[10px] font-body text-amber-500">
+                      <span className="px-2 py-1 bg-white rounded-lg border border-amber-200">Tip: Break big numbers into parts</span>
+                      <span className="px-2 py-1 bg-white rounded-lg border border-amber-200">Line up place values</span>
+                    </div>
+                  </div>
+                </div>)}
+              </div>
+            )}
             <div className="flex flex-col gap-2.5 mb-5">{question.options.map((opt:string,idx:number)=>{const isSel=selectedAnswer===idx;const isC=idx===question.correct;const gG=showResult&&isC;const gR=showResult&&isSel&&!isC;
               return(<button key={idx} onClick={()=>handleAns(idx)} disabled={showResult} className={`px-3.5 py-3 rounded-xl border-2 text-left text-sm flex items-center gap-3 active:scale-[0.98] transition ${gG?"border-green-400 bg-green-50 text-green-900":gR?"border-red-300 bg-red-50 text-red-900":showResult?"border-gray-200 bg-white":"border-gray-200 bg-white hover:border-gray-300"}`}>
                 <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold font-body flex-shrink-0" style={{background:gG?"#10b981":gR?"#f87171":subj.colorLight,color:gG||gR?"#fff":subj.color}}>{gG?"\u2713":gR?"\u2717":String.fromCharCode(65+idx)}</span>
@@ -532,7 +616,7 @@ export default function LearningEngine() {
               {lastPoints>0&&<PointsBurst pts={lastPoints}/>}
               <div className="px-4 py-3.5 rounded-2xl mb-3 border" style={{background:selectedAnswer===question.correct?"#ecfdf5":"#fffbeb",borderColor:selectedAnswer===question.correct?"#a7f3d0":"#fde68a"}}>
                 <p className="text-sm font-body text-gray-700 mb-1.5">{question.explanation}</p><p className="text-xs font-body font-semibold italic" style={{color:subj.color}}>{question.encouragement}</p></div>
-              <div className="flex gap-2.5">{(!testMode||testQ<10)&&<button onClick={()=>genQ(activeSubject,activeTopic,testMode)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold font-body text-white hover:opacity-90 active:scale-[0.98]" style={{background:subj.color}}>{testMode?`Next (${testQ}/10)`:"Next"} &rarr;</button>}
+              <div className="flex gap-2.5">{(!testMode||testQ<10)&&<button onClick={()=>{setShowScratchPad(false);setScratchWork("");genQ(activeSubject,activeTopic,testMode);}} className="flex-1 py-2.5 rounded-xl text-sm font-semibold font-body text-white hover:opacity-90 active:scale-[0.98]" style={{background:subj.color}}>{testMode?`Next (${testQ}/10)`:"Next"} &rarr;</button>}
                 <button onClick={tryLeaveLesson} className="px-4 py-2.5 rounded-xl border-2 text-sm font-semibold font-body hover:bg-gray-50" style={{borderColor:subj.colorMid,color:subj.color}}>Done</button></div>
             </div>}
           </>)}
