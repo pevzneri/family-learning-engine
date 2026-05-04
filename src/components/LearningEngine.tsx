@@ -236,7 +236,7 @@ export default function LearningEngine() {
           fetch("/api/progress",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({child_id:activeChild.id,subject:placementSubj,topic_id:topic.id,updates:{level:newLevel,unlocked:true}})}).catch(()=>{});
         } else {
           /* New topic from higher grade band — create progress entry */
-          updatedProgress[placementSubj][topic.id]={level,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:true};
+          updatedProgress[placementSubj][topic.id]={child_id:activeChild.id,subject:placementSubj,topic_id:topic.id,level,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:true};
           fetch("/api/progress",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({child_id:activeChild.id,subject:placementSubj,topic_id:topic.id,level,unlocked:true})}).catch(()=>{});
         }
       }
@@ -264,7 +264,7 @@ export default function LearningEngine() {
     const topics=getTopics(subj,getEffGB(activeChild.id,subj));const topic=topics.find(t=>t.id===tid);let tp=progress[subj]?.[tid];
     if(!topic){clearInterval(iv);setLoading(false);return;}
     const aLv=getAssessedLevel(activeChild.id,subj);
-    if(!tp){tp={level:aLv||1,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:true};setProgress(p=>({...p,[subj]:{...p[subj],[tid]:tp!}}));}
+    if(!tp){tp={child_id:activeChild.id,subject:subj,topic_id:tid,level:aLv||1,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:true};setProgress(p=>({...p,[subj]:{...p[subj],[tid]:tp!}}));}
     try{const r=await fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:getChildBoost(activeChild.id,subj)+notesAutoBoost(activeChild.notes||""),customFocus:customFocus[activeChild.id]||"",assessedLevel:getAssessedLevel(activeChild.id,subj)})});
     if(!r.ok)throw new Error(`Server ${r.status}`);const d=await r.json();if(d.error)throw new Error(d.error);
@@ -538,7 +538,7 @@ export default function LearningEngine() {
         {getTopics(activeSubject,getEffGB(activeChild.id,activeSubject)).map((topic,idx)=>{
           let tp=progress[activeSubject]?.[topic.id];
           const aLv=getAssessedLevel(activeChild.id,activeSubject);
-          if(!tp){tp={level:aLv||1,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:aLv>=4};setProgress(p=>({...p,[activeSubject]:{...p[activeSubject],[topic.id]:tp!}}));}
+          if(!tp){tp={child_id:activeChild.id,subject:activeSubject,topic_id:topic.id,level:aLv||1,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:aLv>=4};setProgress(p=>({...p,[activeSubject]:{...p[activeSubject],[topic.id]:tp!}}));}
           const subj=CURRICULUM[activeSubject];const canTest=tp.level>=4&&tp.total>=8&&!tp.mastered;
           const isUnlocked=tp.unlocked||aLv>=4;
           return(<div key={topic.id} className="mb-2">
