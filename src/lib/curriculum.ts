@@ -307,3 +307,10 @@ export function scorePlacement(correct: number): number {
   if (correct === 4) return 6;
   return 8;
 }
+
+export function effectiveGradeBand(enrolled: GradeBand, assessedLevel: number): GradeBand {
+  if (!assessedLevel || assessedLevel < 6) return enrolled;
+  if (enrolled === "K-1") return "2-3";
+  if (enrolled === "2-3") return "4-5";
+  return "4-5";
+}

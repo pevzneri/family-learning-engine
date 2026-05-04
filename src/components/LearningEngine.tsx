@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Child, GradeBand, GeneratedQuestion, ProgressRow } from "@/lib/types";
-import { CURRICULUM, GRADE_BANDS, LEARNING_STYLES, AVATARS, MASTERY, getTopics, PLACEMENT_QUESTIONS, scorePlacement } from "@/lib/curriculum";
+import { CURRICULUM, GRADE_BANDS, LEARNING_STYLES, AVATARS, MASTERY, getTopics, PLACEMENT_QUESTIONS, scorePlacement, effectiveGradeBand } from "@/lib/curriculum";
 
 type View = "login"|"profiles"|"childPin"|"createChild"|"editChild"|"dashboard"|"subject"|"lesson"|"parent"|"parentDash"|"achievements"|"settings"|"placement";
 
@@ -141,6 +141,7 @@ export default function LearningEngine() {
   useEffect(()=>{try{localStorage.setItem("kk_assessedLevels",JSON.stringify(assessedLevels));}catch{}},[assessedLevels]);
   const getAssessedLevel=(childId:string,subj:string)=>assessedLevels[childId]?.[subj]||0;
   const childHasAssessment=(childId:string)=>!!assessedLevels[childId]&&Object.keys(assessedLevels[childId]).length>0;
+  const getEffGB=(childId:string,subj:string):GradeBand=>{const child=children.find(c=>c.id===childId);if(!child)return"2-3";return effectiveGradeBand(child.grade_band as GradeBand,getAssessedLevel(childId,subj));};
   const getChildHidden=(childId:string):string[]=>hiddenSubjects[childId]||[];
   const toggleChildSubject=(childId:string,subj:string)=>{setHiddenSubjects(p=>{const cur=p[childId]||[];return{...p,[childId]:cur.includes(subj)?cur.filter(s=>s!==subj):[...cur,subj]};});};
   const getChildBoost=(childId:string,subj:string)=>(diffBoost[childId]?.[subj]||0);
@@ -187,8 +188,9 @@ export default function LearningEngine() {
     } else {
       const level=scorePlacement(placementCorrects);
       setAssessedLevels(p=>({...p,[activeChild.id]:{...(p[activeChild.id]||{}),[placementSubj]:level}}));
-      /* Apply assessed level to all topics in this subject */
-      const topics=getTopics(placementSubj,activeChild.grade_band as GradeBand);
+      /* Apply assessed level — load topics from effective grade band */
+      const effGB=effectiveGradeBand(activeChild.grade_band as GradeBand,level);
+      const topics=getTopics(placementSubj,effGB);
       const updatedProgress={...progress};
       if(!updatedProgress[placementSubj])updatedProgress[placementSubj]={};
       for(const topic of topics){
@@ -197,6 +199,10 @@ export default function LearningEngine() {
           const newLevel=Math.max(tp.level,level);
           updatedProgress[placementSubj][topic.id]={...tp,level:newLevel,unlocked:true};
           fetch("/api/progress",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({child_id:activeChild.id,subject:placementSubj,topic_id:topic.id,updates:{level:newLevel,unlocked:true}})}).catch(()=>{});
+        } else {
+          /* New topic from higher grade band — create progress entry */
+          updatedProgress[placementSubj][topic.id]={level,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:true};
+          fetch("/api/progress",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({child_id:activeChild.id,subject:placementSubj,topic_id:topic.id,level,unlocked:true})}).catch(()=>{});
         }
       }
       setProgress(updatedProgress);
@@ -210,8 +216,10 @@ export default function LearningEngine() {
     if(!activeChild)return;setLoading(true);setError(null);setSelectedAnswer(null);setShowResult(false);setLastPoints(0);
     msgIdx.current=0;setLoadingMsg(loadMsgs[0]);
     const iv=setInterval(()=>{msgIdx.current=Math.min(msgIdx.current+1,3);setLoadingMsg(loadMsgs[msgIdx.current]);},2500);
-    const topics=getTopics(subj,activeChild.grade_band as GradeBand);const topic=topics.find(t=>t.id===tid);const tp=progress[subj]?.[tid];
-    if(!topic||!tp){clearInterval(iv);setLoading(false);return;}
+    const topics=getTopics(subj,getEffGB(activeChild.id,subj));const topic=topics.find(t=>t.id===tid);let tp=progress[subj]?.[tid];
+    if(!topic){clearInterval(iv);setLoading(false);return;}
+    const aLv=getAssessedLevel(activeChild.id,subj);
+    if(!tp){tp={level:aLv||1,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:true};setProgress(p=>({...p,[subj]:{...p[subj],[tid]:tp!}}));}
     try{const r=await fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({profileName:activeChild.name,gradeBand:activeChild.grade_band,learningStyle:activeChild.learning_style,notes:activeChild.notes,interests:activeChild.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:recentQs.slice(-5),difficultyBoost:getChildBoost(activeChild.id,subj)+notesAutoBoost(activeChild.notes||""),customFocus:customFocus[activeChild.id]||"",assessedLevel:getAssessedLevel(activeChild.id,subj)})});
     if(!r.ok)throw new Error(`Server ${r.status}`);const d=await r.json();if(d.error)throw new Error(d.error);
@@ -232,7 +240,7 @@ export default function LearningEngine() {
     const newTotal=sessionStats.total+1;
     let bonusPts=0;
     if(newTotal>0&&newTotal%10===0){bonusPts=50+(Math.floor(newTotal/10)*25);setMilestoneBonus(bonusPts);if(celEnabled){setCelType(t=>t+1);setShowCel(true);}}
-    const pct=n.total>0?(n.correct/n.total)*100:0;const topics=getTopics(activeSubject,activeChild.grade_band as GradeBand);const ci=topics.findIndex(t=>t.id===activeTopic);
+    const pct=n.total>0?(n.correct/n.total)*100:0;const topics=getTopics(activeSubject,getEffGB(activeChild.id,activeSubject));const ci=topics.findIndex(t=>t.id===activeTopic);
     let unlock:string|undefined;
     if(testMode&&testQ+1>=10&&testC+(ok?1:0)>=8){n.mastered=true;if(ci<topics.length-1)unlock=topics[ci+1].id;}
     else if(!testMode&&pct>=MASTERY.masteredPct&&n.total>=MASTERY.minQ&&n.level>=MASTERY.minLevel){n.mastered=true;if(ci<topics.length-1)unlock=topics[ci+1].id;}
@@ -249,7 +257,7 @@ export default function LearningEngine() {
   const goBack=()=>{window.speechSynthesis?.cancel();if(view==="lesson"){setView("subject");setQuestion(null);setTestMode(false);setTestDone(false);}else if(view==="subject"||view==="parent")setView("dashboard");else if(view==="editChild"||view==="createChild"){setView("profiles");resetForm();}else if(view==="childPin"){setView("profiles");setPinInput("");setPinError("");}else if(view==="parentDash"||view==="achievements"||view==="settings"||view==="placement")setView("dashboard");};
   const tryLeaveLesson=()=>{if(view==="lesson"&&sessionStats.total>0&&!testDone){setShowSurrenderPopup(true);}else{goBack();}};
   const goProfiles=()=>{try{localStorage.removeItem("kk_activeChild");}catch{}setView("profiles");setActiveChild(null);setActiveSubject(null);};
-  const getStats=(s:string,prog?:Record<string,Record<string,ProgressRow>>)=>{const p=prog||progress;if(!activeChild&&!prog)return{pct:0,done:0,total:0};const gb=activeChild?.grade_band||"2-3";const t=getTopics(s,gb as GradeBand);const d=t.filter(x=>p[s]?.[x.id]?.mastered).length;return{pct:t.length>0?Math.round((d/t.length)*100):0,done:d,total:t.length};};
+  const getStats=(s:string,prog?:Record<string,Record<string,ProgressRow>>,childId?:string)=>{const p=prog||progress;const cid=childId||activeChild?.id;if(!cid&&!activeChild&&!prog)return{pct:0,done:0,total:0};const gb=cid?getEffGB(cid,s):(activeChild?.grade_band||"2-3") as GradeBand;const t=getTopics(s,gb);const d=t.filter(x=>p[s]?.[x.id]?.mastered).length;return{pct:t.length>0?Math.round((d/t.length)*100):0,done:d,total:t.length};};
   const getTotalPts=(prog?:Record<string,Record<string,ProgressRow>>)=>{const p=prog||progress;let t=0;for(const s of Object.values(p))for(const tp of Object.values(s))t+=(tp.correct||0)*15;return t;};
 
   /* Achievements for student view */
@@ -322,7 +330,7 @@ export default function LearningEngine() {
             </div>
             <p className="text-xs font-body text-gray-500 mb-3">{assess.detail}</p>
             {/* Subject bars */}
-            {Object.entries(CURRICULUM).map(([k,s])=>{const topics=getTopics(k,child.grade_band as GradeBand);const mastered=topics.filter(t=>cp[k]?.[t.id]?.mastered).length;const pct=topics.length>0?Math.round((mastered/topics.length)*100):0;
+            {Object.entries(CURRICULUM).map(([k,s])=>{const topics=getTopics(k,getEffGB(child.id,k));const mastered=topics.filter(t=>cp[k]?.[t.id]?.mastered).length;const pct=topics.length>0?Math.round((mastered/topics.length)*100):0;
               const avgLv=topics.reduce((a,t)=>{const tp=cp[k]?.[t.id];return a+(tp&&tp.total>0?tp.level:0);},0)/(topics.filter(t=>cp[k]?.[t.id]?.total).length||1);
               return(<div key={k} className="mb-2">
                 <div className="flex justify-between items-center text-xs font-body mb-0.5"><span style={{color:s.color}} className="font-bold">{s.icon} {s.label}</span><span className="text-gray-400">{mastered}/{topics.length} mastered</span></div>
@@ -473,9 +481,12 @@ export default function LearningEngine() {
       {/* SUBJECT */}
       {view==="subject"&&activeChild&&activeSubject&&(<div className="animate-fade-up">
         <div className="text-center mb-5"><span className="text-3xl">{CURRICULUM[activeSubject].icon}</span><h2 className="text-xl font-bold mt-1" style={{color:CURRICULUM[activeSubject].color}}>{CURRICULUM[activeSubject].label}</h2></div>
-        {getTopics(activeSubject,activeChild.grade_band as GradeBand).map((topic,idx)=>{
-          const tp=progress[activeSubject]?.[topic.id];if(!tp)return null;const subj=CURRICULUM[activeSubject];const canTest=tp.level>=4&&tp.total>=8&&!tp.mastered;
-          const aLv=getAssessedLevel(activeChild.id,activeSubject);const isUnlocked=tp.unlocked||aLv>=4;
+        {getTopics(activeSubject,getEffGB(activeChild.id,activeSubject)).map((topic,idx)=>{
+          let tp=progress[activeSubject]?.[topic.id];
+          const aLv=getAssessedLevel(activeChild.id,activeSubject);
+          if(!tp){tp={level:aLv||1,total:0,correct:0,streak:0,best_streak:0,mastered:false,unlocked:aLv>=4};setProgress(p=>({...p,[activeSubject]:{...p[activeSubject],[topic.id]:tp!}}));}
+          const subj=CURRICULUM[activeSubject];const canTest=tp.level>=4&&tp.total>=8&&!tp.mastered;
+          const isUnlocked=tp.unlocked||aLv>=4;
           return(<div key={topic.id} className="mb-2">
             <button onClick={()=>isUnlocked&&goLesson(topic.id)} disabled={!isUnlocked} className={`block w-full text-left px-3.5 py-3 rounded-xl border-2 transition ${!isUnlocked?"opacity-50 cursor-not-allowed border-gray-200 bg-gray-50":tp.mastered?"border-green-200 bg-green-50":"border-gray-200 bg-white hover:border-gray-300 active:scale-[0.99]"}`}>
               <div className="flex justify-between items-center">
@@ -488,7 +499,7 @@ export default function LearningEngine() {
 
       {/* LESSON */}
       {view==="lesson"&&activeChild&&activeSubject&&activeTopic&&(()=>{
-        const subj=CURRICULUM[activeSubject];const topics=getTopics(activeSubject,activeChild.grade_band as GradeBand);
+        const subj=CURRICULUM[activeSubject];const topics=getTopics(activeSubject,getEffGB(activeChild.id,activeSubject));
         const topic=topics.find(t=>t.id===activeTopic);const tp=progress[activeSubject]?.[activeTopic];
         if(!topic||!tp)return null;
         if(testDone)return(<div className="animate-fade-up text-center py-12"><div className="text-5xl mb-4">{testPass?"\u{1F389}":"\u{1F4AA}"}</div><h2 className="text-2xl font-bold mb-2">{testPass?"Test Passed!":"Keep Practicing!"}</h2><p className="text-lg font-body text-gray-600 mb-2">{testC}/10</p><div className="w-48 h-3 rounded-full bg-gray-200 mx-auto mb-4"><div className="h-full rounded-full" style={{width:`${testC*10}%`,background:testPass?"#10b981":"#f59e0b"}}/></div><button onClick={goBack} className="px-8 py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold font-body">Back</button></div>);
@@ -534,7 +545,7 @@ export default function LearningEngine() {
           <div className="text-xs font-body text-gray-400 mt-1">{(() => { const a = assessGradeLevel(progress, activeChild.grade_band); return <span style={{color:a.color}} className="font-bold">{a.label}</span>; })()}</div>
           <div className="flex justify-center gap-3 mt-2"><div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full"><StarIcon/><span className="text-xs font-bold font-body text-amber-700">{getTotalPts().toLocaleString()} Bab$</span></div></div>
         </div>
-        {Object.entries(CURRICULUM).map(([k,s])=>{const topics=getTopics(k,activeChild.grade_band as GradeBand);const act=topics.filter(t=>progress[k]?.[t.id]?.unlocked||(progress[k]?.[t.id]?.total||0)>0);
+        {Object.entries(CURRICULUM).map(([k,s])=>{const topics=getTopics(k,getEffGB(activeChild.id,k));const act=topics.filter(t=>progress[k]?.[t.id]?.unlocked||(progress[k]?.[t.id]?.total||0)>0);
           return(<div key={k} className="mb-5"><div className="text-sm font-bold font-body mb-2" style={{color:s.color}}>{s.icon} {s.label}</div>
             {act.length===0?<div className="text-xs font-body text-gray-300 px-3 py-2 bg-gray-50 rounded-lg">Not started</div>:
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
