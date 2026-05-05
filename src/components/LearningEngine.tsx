@@ -583,7 +583,7 @@ export default function LearningEngine() {
             {activeSubject==="math"&&tp.level>=3&&!showResult&&(
               <div className="mb-3">
                 <button onClick={()=>setShowScratchPad(!showScratchPad)} className={`flex items-center gap-2 px-4 py-2 rounded-xl border-2 text-sm font-body font-semibold ${showScratchPad?"border-amber-400 bg-amber-50 text-amber-700":"border-gray-200 bg-white text-gray-500 hover:border-amber-300"}`}>{"\u{270F}\u{FE0F}"} {showScratchPad?"Hide":"Show"} math tools</button>
-                {showScratchPad&&<div className="mt-2 animate-fade-up"><MathTools toolType={detectMathTool(topics.find(t=>t.id===activeTopic)?.name||"")} onBonusPoints={(pts)=>setSessionStats(p=>({...p,points:p.points+pts}))}/></div>}
+                {showScratchPad&&<div className="mt-2 animate-fade-up space-y-3"><MathTools toolType={detectMathTool(topics.find(t=>t.id===activeTopic)?.name||"")} onBonusPoints={(pts)=>setSessionStats(p=>({...p,points:p.points+pts}))}/><div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4"><div className="text-xs font-bold font-body text-blue-600 mb-2">📝 Show Your Work</div><textarea value={scratchWork} onChange={e=>setScratchWork(e.target.value)} rows={4} placeholder="Write out your steps here..." className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-white text-sm font-mono resize-y focus:border-amber-500 focus:outline-none" style={{lineHeight:"1.8"}}/></div></div>}
               </div>
             )}
             <div className="flex flex-col gap-2.5 mb-5">{question.options.map((opt:string,idx:number)=>{const isSel=selectedAnswer===idx;const isC=idx===question.correct;const gG=showResult&&isC;const gR=showResult&&isSel&&!isC;
