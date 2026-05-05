@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Child, GradeBand, GeneratedQuestion, ProgressRow } from "@/lib/types";
 import { CURRICULUM, GRADE_BANDS, LEARNING_STYLES, AVATARS, MASTERY, getTopics, PLACEMENT_QUESTIONS, scorePlacement, effectiveGradeBand } from "@/lib/curriculum";
+import MathTools from "@/components/MathTools";
 
 type View = "login"|"profiles"|"childPin"|"createChild"|"editChild"|"dashboard"|"subject"|"lesson"|"parent"|"parentDash"|"achievements"|"settings"|"placement";
 
@@ -48,6 +49,7 @@ function speak(text: string, voiceIdx?: number) {
 
 function calcPoints(lv: number, st: number, ok: boolean): number { return ok ? 10+(lv*5)+(Math.min(st,5)*3) : 0; }
 function notesAutoBoost(notes: string): number { if(!notes)return 0; const n=notes.toLowerCase(); let b=0; if(/\brsm\b|russian school/i.test(n))b+=2; if(/\b2e\b|twice.?exceptional|gifted/i.test(n))b+=1; if(/\badvanced\b|above.?grade/i.test(n))b+=1; return Math.min(b,3); }
+function detectMathTool(topicName: string): "multiply"|"divide"|"fraction"|"general" { const t=topicName.toLowerCase(); if(/multipli|array|product|factor/.test(t))return "multiply"; if(/divis|sharing equally|grouping/.test(t))return "divide"; if(/fraction|halves|thirds|fourths|decimal/.test(t))return "fraction"; return "general"; }
 function scrambleWord(w: string): string { const a=w.split(""); for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} const s=a.join(""); return s===w?scrambleWord(w):s; }
 const EMMA_WORDS: Record<string,string[]> = {math:["addition","multiply","fraction","decimal","geometry","algebra"],reading:["sentence","paragraph","synonym","metaphor","fiction","summary"],science:["energy","gravity","habitat","molecule","weather","circuit"],geography:["mountain","compass","continent","island","climate","resource"],history:["freedom","ancient","explore","invention","colony","liberty"],bible:["kindness","courage","wisdom","forgive","charity","faithful"]};
 function PointsBurst({ pts }: { pts: number }) { return pts>0?<div className="animate-fade-up text-center mb-2"><span className="inline-block px-4 py-1.5 rounded-full bg-amber-100 border border-amber-300 text-amber-700 font-bold font-body text-sm">+{pts} Bab$ Bux!</span></div>:null; }
@@ -580,31 +582,8 @@ export default function LearningEngine() {
             {/* MATH SCRATCH PAD */}
             {activeSubject==="math"&&tp.level>=3&&!showResult&&(
               <div className="mb-3">
-                <button onClick={()=>{setShowScratchPad(!showScratchPad);if(!showScratchPad)setScratchWork("");}} className={`flex items-center gap-2 px-4 py-2 rounded-xl border-2 text-sm font-body font-semibold ${showScratchPad?"border-amber-400 bg-amber-50 text-amber-700":"border-gray-200 bg-white text-gray-500 hover:border-amber-300"}`}>{"\u{270F}\u{FE0F}"} {showScratchPad?"Hide":"Show"} work area</button>
-                {showScratchPad&&(<div className="mt-2 animate-fade-up">
-                  <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4">
-                    <div className="flex gap-3 mb-3">
-                      <div className="flex-1">
-                        <div className="text-[10px] font-bold font-body text-amber-600 mb-1">Show your work:</div>
-                        <textarea value={scratchWork} onChange={e=>setScratchWork(e.target.value)} rows={4} placeholder="Write out your steps here...&#10;&#10;Example:&#10;  456&#10;x  23&#10;-----&#10; 1368  (456 × 3)&#10; 9120  (456 × 20)&#10;-----&#10;10488" className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-white text-sm font-mono resize-y focus:border-amber-500 focus:outline-none" style={{lineHeight:"1.8"}}/>
-                      </div>
-                      <div className="w-28 flex-shrink-0">
-                        <div className="text-[10px] font-bold font-body text-amber-600 mb-1">Place values:</div>
-                        <div className="bg-white rounded-xl border border-amber-300 p-2 text-center">
-                          <div className="grid grid-cols-4 gap-0.5 text-[9px] font-bold font-body text-amber-500 mb-1"><span>Th</span><span>H</span><span>T</span><span>O</span></div>
-                          <div className="grid grid-cols-4 gap-0.5">{[0,1,2,3].map(i=>(<div key={i} className="h-8 border border-dashed border-amber-200 rounded bg-amber-50/50"/>))}</div>
-                          <div className="grid grid-cols-4 gap-0.5 mt-0.5">{[0,1,2,3].map(i=>(<div key={i} className="h-8 border border-dashed border-amber-200 rounded bg-amber-50/50"/>))}</div>
-                          <div className="border-t border-amber-300 mt-1 pt-1"><div className="grid grid-cols-4 gap-0.5">{[0,1,2,3].map(i=>(<div key={i} className="h-8 border border-dashed border-amber-200 rounded bg-amber-50/50"/>))}</div></div>
-                        </div>
-                        <div className="text-[9px] font-body text-amber-400 text-center mt-1">Drag numbers mentally!</div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2 text-[10px] font-body text-amber-500">
-                      <span className="px-2 py-1 bg-white rounded-lg border border-amber-200">Tip: Break big numbers into parts</span>
-                      <span className="px-2 py-1 bg-white rounded-lg border border-amber-200">Line up place values</span>
-                    </div>
-                  </div>
-                </div>)}
+                <button onClick={()=>setShowScratchPad(!showScratchPad)} className={`flex items-center gap-2 px-4 py-2 rounded-xl border-2 text-sm font-body font-semibold ${showScratchPad?"border-amber-400 bg-amber-50 text-amber-700":"border-gray-200 bg-white text-gray-500 hover:border-amber-300"}`}>{"\u{270F}\u{FE0F}"} {showScratchPad?"Hide":"Show"} math tools</button>
+                {showScratchPad&&<div className="mt-2 animate-fade-up"><MathTools toolType={detectMathTool(topics.find(t=>t.id===activeTopic)?.name||"")} onBonusPoints={(pts)=>setSessionStats(p=>({...p,points:p.points+pts}))}/></div>}
               </div>
             )}
             <div className="flex flex-col gap-2.5 mb-5">{question.options.map((opt:string,idx:number)=>{const isSel=selectedAnswer===idx;const isC=idx===question.correct;const gG=showResult&&isC;const gR=showResult&&isSel&&!isC;
