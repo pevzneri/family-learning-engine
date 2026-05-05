@@ -50,7 +50,6 @@ Rules:
     }
     const data = await response.json();
     const text = data.content?.map((c: any) => c.text || "").join("") || "";
-    require("fs").writeFileSync("/tmp/claude-debug.txt", text.substring(0, 500));
     const jsonMatch = text.match(/{[\s\S]*}/); if (!jsonMatch) throw new Error("No JSON found"); const parsed = JSON.parse(jsonMatch[0]);
     if (parsed.options) parsed.options = parsed.options.map((o: string) => o.replace(/^[A-D]\)\s*/i, ""));
     if (parsed.explanation) {
