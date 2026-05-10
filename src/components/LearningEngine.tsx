@@ -177,7 +177,7 @@ export default function LearningEngine() {
       const tp=prog[subj]?.[firstUnlocked.id]||{level:getAssessedLevel(child.id,subj)||1,streak:0,total:0};
       const key=`${subj}:${firstUnlocked.id}`;
       fetches.push(
-        fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
+        fetch("/api/generate-question?isPreload=true",{method:"POST",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({profileName:child.name,gradeBand:child.grade_band,learningStyle:child.learning_style,notes:child.notes,interests:child.interests,subject:subj,topicName:firstUnlocked.name,topicDesc:firstUnlocked.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:[],difficultyBoost:getChildBoost(child.id,subj)+notesAutoBoost(child.notes||""),customFocus:customFocus[child.id]||"",assessedLevel:getAssessedLevel(child.id,subj)})
         }).then(async r=>{if(r.ok){const d=await r.json();if(!d.error){if(!qCache.current[key])qCache.current[key]=[];qCache.current[key].push(d);}}}).catch(()=>{})
       );
@@ -190,7 +190,7 @@ export default function LearningEngine() {
     const topics=getTopics(subj,gb);const topic=topics.find(t=>t.id===tid);if(!topic)return;
     const key=`${subj}:${tid}`;
     if(qCache.current[key]?.length>=2)return;
-    fetch("/api/generate-question",{method:"POST",headers:{"Content-Type":"application/json"},
+    fetch("/api/generate-question?isPreload=true",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({profileName:child.name,gradeBand:child.grade_band,learningStyle:child.learning_style,notes:child.notes,interests:child.interests,subject:subj,topicName:topic.name,topicDesc:topic.desc,level:tp.level,streak:tp.streak,totalAnswered:tp.total,recentQuestions:[],difficultyBoost:getChildBoost(child.id,subj)+notesAutoBoost(child.notes||""),customFocus:customFocus[child.id]||"",assessedLevel:getAssessedLevel(child.id,subj)})
     }).then(async r=>{if(r.ok){const d=await r.json();if(!d.error){if(!qCache.current[key])qCache.current[key]=[];qCache.current[key].push(d);}}}).catch(()=>{});
   };

@@ -33,11 +33,13 @@ Rules:
 - CRITICAL MATH ACCURACY: SOLVE the problem yourself first. Verify your answer. Then set "correct" to the index of your verified answer. The "explanation" must show complete solution steps matching "correct".
 - For math/science: include emoji visuals in scene and options
 - ${effBand} reading level. VARY every question.`;
+    const isPreload = req.nextUrl.searchParams.get("isPreload") === "true";
+    const modelToUse = isPreload ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: modelToUse,
         max_tokens: 1500,
         system: sysPrompt,
         messages: [{ role: "user", content: "Generate a " + diff + " " + subject + " question on " + topicName + ". Level " + effectiveLevel + ". Solve first, verify, then write JSON." }]
