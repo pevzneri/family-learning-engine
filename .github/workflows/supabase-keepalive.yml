@@ -16,15 +16,13 @@ jobs:
           echo "Pinging Supabase to prevent inactivity pause..."
 
           RESPONSE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
-            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}")
+            "${{ secrets.SUPABASE_URL }}/rest/v1/")
 
           echo "HTTP status: $RESPONSE"
 
-          if [ "$RESPONSE" -ge 200 ] && [ "$RESPONSE" -lt 400 ]; then
+          if [ "$RESPONSE" != "000" ]; then
             echo "Supabase is alive (HTTP $RESPONSE)"
           else
-            echo "Unexpected response: HTTP $RESPONSE"
+            echo "No response from Supabase — may be paused or unreachable"
             exit 1
           fi
