@@ -2,29 +2,28 @@ name: Supabase Keep-Alive
 
 on:
   schedule:
-      # Runs every 5 days at 08:00 UTC (well within the 7-day pause threshold)
-          - cron: '0 8 */5 * *'
-            workflow_dispatch: # Allow manual trigger from GitHub Actions UI
+    - cron: '0 8 */5 * *'
+  workflow_dispatch:
 
-            jobs:
-              ping:
-                  name: Ping Supabase
-                      runs-on: ubuntu-latest
+jobs:
+  ping:
+    name: Ping Supabase
+    runs-on: ubuntu-latest
 
-                          steps:
-                                - name: Ping Supabase REST API
-                                        run: |
-                                                  echo "Pinging Supabase to prevent inactivity pause..."
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          echo "Pinging Supabase to prevent inactivity pause..."
 
-                                                            RESPONSE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-                                                                        "${{ secrets.SUPABASE_URL }}/rest/v1/" \
-                                                                                    -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}")
+          RESPONSE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}")
 
-                                                                                              echo "HTTP status: $RESPONSE"
+          echo "HTTP status: $RESPONSE"
 
-                                                                                                        if [ "$RESPONSE" -ge 200 ] && [ "$RESPONSE" -lt 400 ]; then
-                                                                                                                    echo "Supabase is alive (HTTP $RESPONSE)"
-                                                                                                                              else
-                                                                                                                                          echo "Unexpected response: HTTP $RESPONSE"
-                                                                                                                                                      exit 1
-                                                                                                                                                                fi
+          if [ "$RESPONSE" -ge 200 ] && [ "$RESPONSE" -lt 400 ]; then
+            echo "Supabase is alive (HTTP $RESPONSE)"
+          else
+            echo "Unexpected response: HTTP $RESPONSE"
+            exit 1
+          fi
