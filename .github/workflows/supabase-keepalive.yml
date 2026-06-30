@@ -17,6 +17,7 @@ jobs:
 
           RESPONSE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
             "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
             -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}")
 
           echo "HTTP status: $RESPONSE"
